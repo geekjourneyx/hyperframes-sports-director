@@ -472,7 +472,7 @@ test('proposal compiler rejects structural SVG bypasses and malformed XML', asyn
 
 test('proposal compiler accepts the strict code-rendered SVG subset', async (t) => {
   const { projectRoot, candidates } = await fixture(t);
-  const safe = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080"><defs><linearGradient id="signal" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C9A86A"/><stop offset="100%" stop-color="#F5F2EA"/></linearGradient></defs><g opacity="0.9" transform="translate(24 24)"><rect id="panel" x="0" y="0" width="1872" height="1032" rx="24" fill="url(#signal)"/><path d="M 80 900 L 960 180 L 1840 900" fill="none" stroke="#050505" stroke-width="12"/><text x="80" y="980" fill="#050505" font-size="64" font-weight="700">Direction 01</text></g></svg>';
+  const safe = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080"><defs><linearGradient id="chapter.title" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C9A86A"/><stop offset="100%" stop-color="#F5F2EA"/></linearGradient></defs><g opacity="0.9" transform="translate(24 24)"><rect id="panel" x="0" y="0" width="1872" height="1032" rx="24" fill="url(#chapter.title)"/><path d="M 80 900 L 960 180 L 1840 900" fill="none" stroke="#050505" stroke-width="12"/><text x="80" y="980" fill="#050505" font-size="64" font-weight="700">Move.fast — effort/release (37.5%)</text></g></svg>';
   for (const candidate of candidates) {
     for (const path of [...candidate.layoutProofs, ...candidate.motionStoryboard]) {
       candidate.previewArtifactDigests[path] = sha(safe);
@@ -505,6 +505,54 @@ test('proposal compiler rejects private data in allowed SVG text and attributes'
       (error) => error.code === code && error.message === message,
       name,
     );
+  }
+});
+
+test('proposal compiler rejects delimiter-embedded paths, three-decimal GPS, and unlisted private basenames', async (t) => {
+  const variants = [
+    {
+      mutation: 'absolute POSIX path recognizer drops key-value delimiter handling',
+      content: '<text>source=/Users/alice/private/session</text>',
+      code: 'E_REFERENCE_ABSOLUTE',
+      message: 'prototype SVG text contains an absolute path',
+    },
+    {
+      mutation: 'absolute Windows path recognizer drops punctuation-boundary handling',
+      content: '<title>source=C:\\Users\\Alice\\private\\session</title>',
+      code: 'E_REFERENCE_ABSOLUTE',
+      message: 'prototype SVG text contains an absolute path',
+    },
+    {
+      mutation: 'coordinate-pair recognizer restores a four-decimal precision floor',
+      content: '<text>37.775,-122.419</text>',
+      code: 'E_RAW_GPS',
+      message: 'prototype SVG text contains raw GPS',
+    },
+    {
+      mutation: 'private-basename recognizer restores a finite extension list',
+      content: '<desc>Alice-Sunday-Ride.sessionlog</desc>',
+      code: 'E_REFERENCE_PRIVATE_NAME',
+      message: 'prototype SVG text contains a private filename or email',
+    },
+    {
+      mutation: 'private-basename recognizer drops explicit basename labels',
+      content: '<desc>basename=SundayRide.sessionlog</desc>',
+      code: 'E_REFERENCE_PRIVATE_NAME',
+      message: 'prototype SVG text contains a private filename or email',
+    },
+  ];
+  for (const variant of variants) {
+    await t.test(variant.mutation, async (t) => {
+      const { projectRoot, candidates } = await fixture(t);
+      const path = candidates[0].layoutProofs[0];
+      const bytes = `<svg xmlns="http://www.w3.org/2000/svg">${variant.content}</svg>`;
+      candidates[0].previewArtifactDigests[path] = sha(bytes);
+      await writeFile(join(projectRoot, path), bytes);
+      await assert.rejects(
+        () => compileDirectionProposals({ projectRoot, candidates }),
+        (error) => error.code === variant.code && error.message === variant.message,
+      );
+    });
   }
 });
 

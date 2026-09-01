@@ -102,23 +102,38 @@ const SVG_TEXT_ELEMENTS = new Set(['text', 'tspan', 'title', 'desc']);
 const SVG_LOCAL_REFERENCE_ATTRIBUTES = new Set(['fill', 'stroke', 'clip-path', 'mask']);
 const SVG_SAFE_ATTRIBUTE_VALUE = /^[A-Za-z0-9#.,%+() _-]+$/;
 const SVG_SAFE_ID = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+const SVG_ABSOLUTE_PATH = /(?:^|[\s"'(=,:;\[\]{}])(?:\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*|[A-Za-z]:[\\/][^\s<>"']+)/i;
+const SVG_KNOWN_PRIVATE_BASENAME = /\b[A-Z0-9][A-Z0-9._-]*\.(?:mov|mp4|m4v|mkv|avi|webm|jpg|jpeg|png|webp|heic|tif|tiff|wav|mp3|m4a|aac|flac|fit|gpx|tcx|kml)\b/i;
+const SVG_UNLISTED_PRIVATE_BASENAME = /(?:^|[^A-Za-z0-9._-])(?=[A-Za-z0-9._-]*[-_])[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z][A-Za-z0-9-]*(?=$|[^A-Za-z0-9._-])/;
+const SVG_LABELED_PRIVATE_BASENAME = /\b(?:source|file(?:name)?|basename|asset|media)\s*[:=]\s*[A-Za-z0-9][A-Za-z0-9._-]*(?:\.[A-Za-z][A-Za-z0-9-]*)?\b/i;
 
 function activePrototype(message) {
   return new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', message);
 }
 
+function containsRawGpsPair(value) {
+  const pairs = value.matchAll(/(?:^|[^0-9.+-])([+-]?\d{1,2}\.\d{3,})\s*,\s*([+-]?\d{1,3}\.\d{3,})(?=$|[^0-9.])/g);
+  for (const match of pairs) {
+    if (Math.abs(Number(match[1])) <= 90 && Math.abs(Number(match[2])) <= 180) return true;
+  }
+  return false;
+}
+
 function assertSvgPrivacy(value, kind) {
   const at = `prototype SVG ${kind}`;
-  if (/(?:^|[\s"'(])(?:\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*|[A-Za-z]:[\\/][^\s<>"']+)/i.test(value)) {
+  if (SVG_ABSOLUTE_PATH.test(value)) {
     throw new DirectionProposalError('E_REFERENCE_ABSOLUTE', `${at} contains an absolute path`);
   }
-  if (/\braw\s*gps\b|(?:^|\D)-?\d{1,2}\.\d{4,}\s*,\s*-?\d{1,3}\.\d{4,}(?:\D|$)|\b(?:lat(?:itude)?|lon(?:gitude)?)\s*[:=]?\s*[+-]?\d{1,3}\.\d{2,}\b/i.test(value)) {
+  if (/\braw\s*gps\b|\b(?:lat(?:itude)?|lon(?:gitude)?)\s*[:=]?\s*[+-]?\d{1,3}\.\d{2,}\b/i.test(value) || containsRawGpsPair(value)) {
     throw new DirectionProposalError('E_RAW_GPS', `${at} contains raw GPS`);
   }
   if (/\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9.-]+/i.test(value)) {
     throw new DirectionProposalError('E_REFERENCE_REMOTE', `${at} contains a URL`);
   }
-  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b[A-Z0-9][A-Z0-9._-]*\.(?:mov|mp4|m4v|mkv|avi|webm|jpg|jpeg|png|webp|heic|tif|tiff|wav|mp3|m4a|aac|flac|fit|gpx|tcx|kml)\b/i.test(value)) {
+  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(value)
+    || SVG_KNOWN_PRIVATE_BASENAME.test(value)
+    || SVG_UNLISTED_PRIVATE_BASENAME.test(value)
+    || SVG_LABELED_PRIVATE_BASENAME.test(value)) {
     throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', `${at} contains a private filename or email`);
   }
 }
