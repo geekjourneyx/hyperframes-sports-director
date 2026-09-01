@@ -407,6 +407,11 @@ async function validatePreviewArtifacts(projectRoot, candidate) {
   }
 }
 
+export async function validateProposalPreviewArtifacts(projectRoot, proposals) {
+  for (const candidate of proposals.candidates ?? []) await validatePreviewArtifacts(projectRoot, candidate);
+  return true;
+}
+
 async function writeJsonAtomic(path, value, beforeRename) {
   await mkdir(dirname(path), { recursive: true });
   const temporary = projectPath(dirname(path), `.${basename(path)}.${process.pid}.tmp`);

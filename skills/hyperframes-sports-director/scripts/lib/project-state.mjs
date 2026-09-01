@@ -7,6 +7,7 @@ const TERMINAL_STATES = new Set(['BLOCKED', 'CANCELLED']);
 const DIGEST = /^[0-9a-f]{64}$/;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/;
 const GATE_REQUIREMENTS = {
+  DIRECTOR_LOCK: { code: 'E_DIRECTOR_LOCK_GATE', roles: { DESIGN_SYSTEM: 'frozen', LOOK_PROFILE: 'frozen', DIRECTOR_APPROVAL: 'consumed', WORKBENCH: 'state-bound' } },
   STYLE_ANCHOR: { code: 'E_STYLE_ANCHOR_GATE', roles: { DESIGN_SYSTEM: 'frozen', LOOK_PROFILE: 'frozen', ASSET_PLAN: 'approved' } },
   ASSET_PRODUCTION: { code: 'E_ASSET_PRODUCTION_GATE', roles: { STYLE_ANCHOR: 'accepted', REPRESENTATIVE_COMBINATION: 'accepted' } },
   DELIVERED: {

@@ -21,8 +21,14 @@
       "depth": { "type": "object", "additionalProperties": { "type": "number" } },
       "motion": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
     } },
+    "selectedDirection": { "type": "object", "required": ["candidateId", "digest", "candidate"], "additionalProperties": false, "properties": {
+      "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" },
+      "digest": { "$ref": "#/$defs/digest" },
+      "candidate": { "type": "object" }
+    } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
+  "allOf": [{ "if": { "properties": { "status": { "const": "frozen" } } }, "then": { "properties": { "selectedDirection": true }, "required": ["selectedDirection"] } }],
   "additionalProperties": false,
   "$defs": {
     "status": { "enum": ["draft", "proposed", "approved", "frozen", "superseded"] },

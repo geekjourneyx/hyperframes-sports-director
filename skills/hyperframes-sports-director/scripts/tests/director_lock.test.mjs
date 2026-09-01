@@ -10,15 +10,18 @@ import {
   ApprovalError,
   compileApprovedDesign,
   compileApprovedLook,
+  renderLockedWorkbench,
   validateCommittedDirection,
   validateDirectorApproval,
 } from '../lib/approval.mjs';
 import {
+  ARTIFACT_ROLE_DEPENDENCIES,
   applyApprovedRepair,
   classifyApprovedRepair,
   computeInvalidationClosure,
   persistApprovedRepair,
 } from '../lib/invalidation.mjs';
+import { validateTransition } from '../lib/project-state.mjs';
 import { lockDirection } from '../lock_direction.mjs';
 
 const NOW = '2026-09-01T12:00:00.000Z';
@@ -48,7 +51,7 @@ function candidate(id, accent) {
     prototypeKind: 'code-rendered', designRevision: `design-${id.at(-1)}`,
     designCandidate: {
       candidateId: id, tokenNamespace: id,
-      semanticColors: { canvas: '#050505', ink: '#F5F2EA', accent, signal: '#A8A29A' },
+      semanticColors: { canvas: '#050505', ink: '#F5F2EA', accent, signal: '#A8A29A', dataPrimary: '#77BBDD' },
       typography: { journeyTitle: 'display', chapterTitle: 'grotesk', annotation: 'mono' },
     },
     lookRevision: `look-${id.at(-1)}`,
@@ -60,7 +63,7 @@ function candidate(id, accent) {
     layoutProofs: [`review/workbench-assets/prototype-${id}-layout-001.svg`],
     motionStoryboard: [`review/workbench-assets/prototype-${id}-motion-001.svg`],
     assetPlan: { roles: ['journey_anchor', 'chapter_slate'], productionImageGenUsed: false },
-    musicPlan: { mode: 'provided', trackIds: ['music-001'] }, risks: [],
+    musicPlan: { mode: 'provided', trackIds: ['media/music/music-001.m4a'] }, risks: [],
     previewArtifactDigests: { [`review/workbench-assets/prototype-${id}-layout-001.svg`]: HEX(`${id}:layout`), [`review/workbench-assets/prototype-${id}-motion-001.svg`]: HEX(`${id}:motion`) },
   };
 }
@@ -108,23 +111,76 @@ function stateAtReview() {
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'hf-director-lock-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  for (const path of ['analysis', 'direction', 'edit', 'renders', 'review', 'cache']) await mkdir(join(root, path), { recursive: true });
+  for (const path of ['analysis/evidence/media-video-001/segment-001', 'direction', 'edit', 'renders', 'review/workbench-assets', 'cache', 'media/music']) await mkdir(join(root, path), { recursive: true });
 
   const editBrief = await writeJson(join(root, 'EDIT_BRIEF.json'), {
-    revision: 2, music: { mode: 'provided', localTracks: ['music-001'] }, privacy: { routeTrimRequired: true },
-    delivery: { width: 1920, height: 1080 }, remoteCapabilitiesForbidden: true, integrity: { digest: null, upstream: {} },
+    $schema: 'https://hyperframes.local/schemas/edit-brief.schema.json', schemaVersion: '1.0.0', revision: 2,
+    sport: { profile: 'cycling' }, story: { emphasis: ['climb'], tone: 'observational', pacing: 'balanced' },
+    duration: { targetSeconds: 180, minSeconds: 150, maxSeconds: 210 },
+    music: { mode: 'provided', localTracks: ['media/music/music-001.m4a'], mixPriority: 'balanced' },
+    copy: { modes: ['titles'], language: 'en', tone: 'spare', title: 'THE LONG CLIMB', subtitle: null, prohibitedClaims: [] },
+    delivery: { container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 1920, height: 1080, aspectRatio: '16:9', frameRate: { mode: 'source-compatible', fps: null }, maximumFileSizeBytes: null },
+    inclusions: [], exclusions: [], privacy: { routeTrimRequired: true, allowIdentities: false },
+    remoteCapabilitiesForbidden: true, integrity: { digest: null, upstream: {} },
   });
-  const mediaIndex = await writeJson(join(root, 'analysis/MEDIA_INDEX.json'), { revision: 2, entries: [], integrity: { digest: null, upstream: {} } });
-  const probe = await writeJson(join(root, 'analysis/PROBE.json'), { revision: 2, media: [], integrity: { digest: null, upstream: {} } });
-  const segments = await writeJson(join(root, 'analysis/SEGMENTS.json'), { revision: 2, segments: [], integrity: { digest: null, upstream: {} } });
-  const shots = await writeJson(join(root, 'analysis/SHOTS.jsonl'), { revision: 2, shots: [], integrity: { digest: null, upstream: {} } });
-  const overlays = await writeJson(join(root, 'direction/DATA_OVERLAYS.json'), { revision: 2, status: 'unavailable', integrity: { digest: null, upstream: {} } });
-  const timeline = await writeJson(join(root, 'edit/TIMELINE.json'), { revision: 2, music: { mode: 'provided', trackIds: ['music-001'] }, integrity: { digest: null, upstream: {} } });
+  const sourceDigest = SHA('source-video');
+  const mediaIndex = await writeJson(join(root, 'analysis/MEDIA_INDEX.json'), {
+    $schema: 'https://hyperframes.local/schemas/media-index.schema.json', schemaVersion: '1.0.0', revision: 2,
+    entries: [{ mediaId: 'media-video-001', mediaType: 'video', sourceRootReadOnly: true, sourceDigest, byteSize: 1024, portablePath: 'media/originals/media-video-001.mp4' }],
+    integrity: { digest: null, upstream: {} },
+  });
+  const probe = await writeJson(join(root, 'analysis/PROBE.json'), {
+    $schema: 'https://hyperframes.local/schemas/probe.schema.json', schemaVersion: '1.0.0', revision: 2,
+    media: [{ mediaId: 'media-video-001', mediaType: 'video', reviewPath: 'review/probe/media-video-001.mp4', sourceDigest, byteSize: 1024, durationSeconds: 12,
+      streams: [{ streamId: 'v0', type: 'video', codec: 'h264', timeBase: '1/24', frameRate: '24/1', width: 1920, height: 1080, rotationDegrees: 0, pixelFormat: 'yuv420p', colorSpace: 'bt709', colorPrimaries: 'bt709', colorTransfer: 'bt709', colorRange: 'tv', sampleAspectRatio: '1/1' }], captureTimestamp: null,
+      proxy: { kind: 'video', path: 'media/proxies/media-video-001.mp4', sourceDigest, transform: { codec: 'h264', maximumWidth: 1920, maximumHeight: 1080, watermark: 'ANALYSIS PROXY', preserveTimestamps: true, preserveAudio: true, autoOrient: true }, timeMapping: [{ proxyStartSeconds: 0, originalStartSeconds: 0, durationSeconds: 12, rate: '1/1' }] } }],
+    integrity: { digest: null, upstream: { mediaIndex: mediaIndex.integrity.digest } },
+  });
+  const segments = await writeJson(join(root, 'analysis/SEGMENTS.json'), {
+    $schema: 'https://hyperframes.local/schemas/segments.schema.json', schemaVersion: '1.0.0', revision: 2, sourceMediaIds: ['media-video-001'],
+    segments: [{ segmentId: 'segment-001', mediaId: 'media-video-001', mediaType: 'video', sourceDigest, probeDigest: probe.integrity.digest, sourceInSeconds: 0, sourceOutSeconds: 12, sourceDurationSeconds: 12, sceneScore: 0.7, motionScore: 0.8, audioPresent: true,
+      reviewPath: 'analysis/evidence/media-video-001/segment-001.webp', evidenceFrames: [{ path: 'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-001.webp', sourceTimeSeconds: 2 }] }],
+    integrity: { digest: null, upstream: { probe: probe.integrity.digest } },
+  });
+  const shots = await writeJson(join(root, 'analysis/SHOTS.jsonl'), {
+    $schema: 'https://hyperframes.local/schemas/shot.schema.json', schemaVersion: '1.0.0', revision: 2, status: 'available',
+    shots: [{ shotId: 'shot-001', mediaId: 'media-video-001', segmentId: 'segment-001', sourceDigest, sourceInSeconds: 0, sourceOutSeconds: 12, sourceDurationSeconds: 12,
+      cameraRole: 'pov', actionRole: 'effort', environmentTags: ['forest'], subjectTags: ['rider'], quality: { motionIntensity: 'high', blur: 'none', shake: 'minor', exposure: 'good', horizon: 'level', occlusion: 'none' }, continuity: { screenDirection: 'left-to-right', motionDirection: 'forward', subjectEntry: 'center', subjectExit: 'center', location: 'forest', timeRelation: 'continuous' }, audioSpans: [{ kind: 'ambient', sourceInSeconds: 0, sourceOutSeconds: 12 }], duplicateGroup: null, setupTailLikelihood: 0.03, evidenceFrames: ['analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-001.webp'], confidence: 0.91 }],
+    integrity: { digest: null, upstream: { probe: probe.integrity.digest, segments: segments.integrity.digest } },
+  });
+  const overlays = await writeJson(join(root, 'direction/DATA_OVERLAYS.json'), {
+    $schema: 'https://hyperframes.local/schemas/data-overlays.schema.json', schemaVersion: '1.0.0', revision: 1, status: 'unavailable', activityDigest: null, syncMapDigest: null, publicRoute: { status: 'unavailable', trimmedRouteId: null }, overlays: [], integrity: { digest: null, upstream: {} },
+  });
+  const timeline = await writeJson(join(root, 'edit/TIMELINE.json'), {
+    $schema: 'https://hyperframes.local/schemas/timeline.schema.json', schemaVersion: '1.0.0', revision: 2, timelineRevision: 'timeline-2', status: 'available', phase: 'rough', designRevision: 'design-1', lookRevision: 'look-1', assetRevision: 'assets-1', motionRevision: 'motion-1', sourceProbeDigest: probe.integrity.digest,
+    items: [{ itemId: 'item-001', shotId: 'shot-001', sourceMediaId: 'media-video-001', sourceKind: 'video', sourceReference: { kind: 'proxy', path: 'media/proxies/media-video-001.mp4', digest: sourceDigest }, sourceInSeconds: 0, sourceOutSeconds: 12, sourceDurationSeconds: 12, destinationInSeconds: 0, destinationOutSeconds: 12, playbackRate: 1, playbackRateCurve: [{ sourceTimeSeconds: 0, rate: 1 }], transform: { stabilization: { mode: 'off', cropFraction: 0 }, cropReframe: null, stillMotion: null, draftColorTransform: 'neutral', faceTreatment: 'off' }, audioPolicy: { sourceGainDb: 0, denoise: false, bridge: 'none' }, transition: { kind: 'none', ownerId: null }, assetReferences: [], motionReferences: [], reasons: ['effort'], colorToken: 'color.primaryText' }],
+    music: { mode: 'local', path: 'media/music/music-001.m4a', loop: true, loopCrossfadeSeconds: 0.25 }, warningDecisions: [], integrity: { digest: null, upstream: { probe: probe.integrity.digest, shots: shots.integrity.digest } },
+  });
+  await writeFile(join(root, 'analysis/evidence/media-video-001/segment-001.webp'), 'segment');
+  const frameBytes = 'frame';
+  const frameDigest = SHA(frameBytes);
+  const frameBundlePath = `review/workbench-assets/test/evidence-media-video-001-segment-001-frame-001-${frameDigest}.webp`;
+  await mkdir(join(root, 'review/workbench-assets/test'), { recursive: true });
+  await writeFile(join(root, 'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-001.webp'), frameBytes);
+  await writeFile(join(root, frameBundlePath), frameBytes);
+  await writeFile(join(root, 'media/music/music-001.m4a'), 'local music');
   await writeFile(join(root, 'renders/rough-cut.mp4'), 'closed proxy rough cut');
   const roughCutDigest = SHA('closed proxy rough cut');
   // Lock validation deliberately binds a closed-file digest record, not a guessed filename.
-  await writeJson(join(root, 'renders/rough-cut.json'), { artifact: 'renders/rough-cut.mp4', outputDigest: roughCutDigest, integrity: { digest: null, upstream: {} } });
+  await writeFile(join(root, 'renders/rough-cut.json'), `${JSON.stringify({ schemaVersion: '1.0.0', revision: 2, stateAuthority: 'ROUGH_CUT', artifact: 'renders/rough-cut.mp4', outputDigest: roughCutDigest, closedFileProbe: { valid: true, durationSeconds: 12, width: 960, height: 540, videoCodec: 'h264', audioCodec: 'aac' }, integrity: { timelineDigest: timeline.integrity.digest, probeDigest: probe.integrity.digest, proxyDigests: [], musicDigest: null } }, null, 2)}\n`);
   const candidates = [candidate('candidate-a', '#C9A86A'), candidate('candidate-b', '#65B8D6')];
+  const prototypeBundlePaths = [];
+  for (const proposal of candidates) {
+    for (const path of [...proposal.layoutProofs, ...proposal.motionStoryboard]) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg"><text>${proposal.candidateId}</text></svg>`;
+      await writeFile(join(root, path), svg);
+      proposal.previewArtifactDigests[path] = SHA(svg);
+      const stable = path.split('/').at(-1).replace(/\.svg$/, '');
+      const bundlePath = `review/workbench-assets/test/${stable}-${SHA(svg)}.svg`;
+      await writeFile(join(root, bundlePath), svg);
+      prototypeBundlePaths.push(bundlePath);
+    }
+  }
   const evidenceDigest = computeArtifactDigest({ mediaIndex: mediaIndex.integrity.digest, probe: probe.integrity.digest, segments: segments.integrity.digest, shots: shots.integrity.digest, dataOverlays: overlays.integrity.digest });
   const assetPlanDigest = computeArtifactDigest(candidates.map(({ candidateId, visualWorldPlan, componentPlan, assetPlan }) => ({ candidateId, visualWorldPlan, componentPlan, assetPlan })));
   const proposals = await writeJson(join(root, 'direction/DIRECTION_PROPOSALS.json'), {
@@ -132,11 +188,15 @@ async function fixture(t) {
     bindings: { editBriefDigest: editBrief.integrity.digest, evidenceDigest, roughCutDigest, timelineDigest: timeline.integrity.digest, musicPlanDigest: computeArtifactDigest(timeline.music), assetPlanDigest },
     integrity: { digest: null, upstream: {} },
   });
-  const workbench = '<html><button data-approve>Approve</button></html>\n';
+  const displayedArtifactDigests = { editBrief: editBrief.integrity.digest, roughCut: roughCutDigest, musicPlan: computeArtifactDigest(timeline.music), assetPlan: assetPlanDigest, evidence: evidenceDigest, proposals: proposals.integrity.digest };
+  const roughBundlePath = `review/workbench-assets/test/rough-cut-${roughCutDigest}.mp4`;
+  await writeFile(join(root, roughBundlePath), 'closed proxy rough cut');
+  const bundleRefs = [frameBundlePath, roughBundlePath, ...prototypeBundlePaths].map((path) => `<img src="${path.slice('review/'.length)}">`).join('');
+  const workbench = `<html><button data-approve>Approve</button>${bundleRefs}<script type="application/json" data-displayed-digests>${JSON.stringify(displayedArtifactDigests)}</script></html>\n`;
   await writeFile(join(root, 'review/director-workbench.html'), workbench);
   const approval = await writeJson(join(root, 'direction/DIRECTOR_APPROVAL.json'), {
     $schema: 'https://hyperframes.local/schemas/director-approval.schema.json', schemaVersion: '1.0.0', revision: 1, status: 'approved', selectedCandidateId: 'candidate-a',
-    displayedArtifactDigests: { editBrief: editBrief.integrity.digest, roughCut: roughCutDigest, musicPlan: computeArtifactDigest(timeline.music), assetPlan: assetPlanDigest, evidence: evidenceDigest, proposals: proposals.integrity.digest },
+    displayedArtifactDigests,
     workbenchDigest: SHA(workbench), approvedAt: NOW,
     integrity: { digest: null, upstream: {} },
   });
@@ -145,9 +205,7 @@ async function fixture(t) {
   await writeJson(join(root, 'PROJECT_STATE.json'), stateAtReview());
 
   const rebuildWorkbench = async ({ selectedCandidate, state }) => {
-    const html = `<html data-state-revision="${state.revision}"><h1>${selectedCandidate.title}</h1><p>Locked direction · read-only</p></html>\n`;
-    await writeFile(join(root, 'review/director-workbench.html'), html);
-    return { digest: SHA(html) };
+    return { html: renderLockedWorkbench(state, selectedCandidate) };
   };
   return { root, approval, proposals, candidates, rebuildWorkbench };
 }
@@ -307,4 +365,185 @@ test('project-scoped lock serialization permits only one concurrent approval con
   const rejected = outcomes.find(({ status }) => status === 'rejected');
   assert.ok(['E_LOCK_BUSY', 'E_APPROVAL_CONSUMED'].includes(rejected?.reason?.code));
   assert.equal((await validateCommittedDirection(root)).state.state, 'DIRECTOR_LOCK');
+});
+
+test('repair authorization is class-scoped and frozen or required roles are never repairable', () => {
+  assert.equal(classifyApprovedRepair({ repairClass: 'position', role: 'TIMELINE' }).code, 'repair_role_unauthorized');
+  assert.equal(classifyApprovedRepair({ repairClass: 'gain', role: 'DESIGN_SYSTEM' }).code, 'approval_boundary_crossed');
+  assert.equal(classifyApprovedRepair({ repairClass: 'scrim', role: 'LOOK_PROFILE' }).code, 'approval_boundary_crossed');
+  for (const role of ['journey_anchor', 'activity_evidence', 'transition_owner']) {
+    const decision = classifyApprovedRepair({ repairClass: 'remove-optional-decorative', role, optional: true });
+    assert.equal(decision.allowed, false);
+    assert.equal(decision.code, 'required_role_failed');
+  }
+});
+
+test('artifact role graph carries complete recorded-media, activity, and design truth chains', () => {
+  assert.deepEqual(computeInvalidationClosure(['MEDIA_INDEX'], ARTIFACT_ROLE_DEPENDENCIES).slice(0, 5), ['MEDIA_INDEX', 'PROBE', 'SEGMENTS', 'SHOTS', 'TIMELINE']);
+  assert.deepEqual(computeInvalidationClosure(['ACTIVITY'], ARTIFACT_ROLE_DEPENDENCIES).slice(0, 4), ['ACTIVITY', 'SYNC_MAP', 'DATA_OVERLAYS', 'TIMELINE']);
+  const designClosure = computeInvalidationClosure(['DESIGN_SYSTEM'], ARTIFACT_ROLE_DEPENDENCIES);
+  for (const role of ['ASSET_MANIFEST', 'MOTION_MAP', 'TIMELINE', 'FINAL_RENDER', 'REVIEW']) assert.ok(designClosure.includes(role), role);
+});
+
+test('generic state transitions enforce the exact DIRECTOR_LOCK hard gate', () => {
+  const record = (role, qualifier) => ({ gate: 'DIRECTOR_LOCK', role, revision: 2, digest: HEX(role), timestamp: NOW, producerCommand: 'lock_direction.mjs', qualifiers: [qualifier], validity: 'valid', invalidatedAt: null });
+  const records = [record('DESIGN_SYSTEM', 'frozen'), record('LOOK_PROFILE', 'frozen'), record('DIRECTOR_APPROVAL', 'consumed'), record('WORKBENCH', 'state-bound')];
+  const currentArtifacts = Object.fromEntries(records.map(({ role, revision, digest }) => [role, { revision, digest }]));
+  assert.equal(validateTransition('DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', { records, currentArtifacts }), true);
+  assert.throws(() => validateTransition('DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', { records: records.slice(0, 3), currentArtifacts }), (error) => error.code === 'E_DIRECTOR_LOCK_GATE');
+  const wrong = structuredClone(records); wrong[3].qualifiers = ['accepted'];
+  assert.throws(() => validateTransition('DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', { records: wrong, currentArtifacts }), (error) => error.code === 'E_DIRECTOR_LOCK_GATE');
+});
+
+test('approval authority schema-validates sources and rehashes every prototype and evidence derivative', async (t) => {
+  const prototype = await fixture(t);
+  await writeFile(join(prototype.root, prototype.candidates[0].layoutProofs[0]), '<svg xmlns="http://www.w3.org/2000/svg"><text>tampered</text></svg>');
+  await assert.rejects(() => validateDirectorApproval(prototype.root), (error) => ['E_PREVIEW_STALE', 'E_APPROVAL_BINDINGS'].includes(error.code));
+
+  const evidence = await fixture(t);
+  await writeFile(join(evidence.root, 'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-001.webp'), 'tampered frame');
+  await assert.rejects(() => validateDirectorApproval(evidence.root), (error) => ['E_EVIDENCE_STALE', 'E_WORKBENCH_STALE'].includes(error.code));
+
+  const invalid = await fixture(t);
+  const editPath = join(invalid.root, 'EDIT_BRIEF.json');
+  const edit = JSON.parse(await readFile(editPath, 'utf8'));
+  delete edit.delivery.container;
+  await writeJson(editPath, edit);
+  await assert.rejects(() => validateDirectorApproval(invalid.root), (error) => ['E_EDIT_BRIEF_INVALID', 'E_SOURCE_CONTRACT'].includes(error.code));
+});
+
+test('approval music resolves exact trimmed selections to the local approved contract', async (t) => {
+  for (const trackId of [' https://remote.example/track.m4a ', 'media/music/unapproved.m4a']) {
+    const { root } = await fixture(t);
+    const proposalPath = join(root, 'direction/DIRECTION_PROPOSALS.json');
+    const proposals = JSON.parse(await readFile(proposalPath, 'utf8'));
+    proposals.candidates.forEach((entry) => { entry.musicPlan.trackIds = [trackId]; });
+    await writeJson(proposalPath, proposals);
+    const approvalPath = join(root, 'direction/DIRECTOR_APPROVAL.json');
+    const approval = JSON.parse(await readFile(approvalPath, 'utf8'));
+    approval.displayedArtifactDigests.proposals = proposals.integrity.digest;
+    const workbenchPath = join(root, 'review/director-workbench.html');
+    const workbench = (await readFile(workbenchPath, 'utf8')).replace(/(<script type="application\/json" data-displayed-digests>)[^<]+/, `$1${JSON.stringify(approval.displayedArtifactDigests)}`);
+    await writeFile(workbenchPath, workbench);
+    approval.workbenchDigest = SHA(workbench);
+    await writeJson(approvalPath, approval);
+    await assert.rejects(() => validateDirectorApproval(root), (error) => error.code === 'E_REMOTE_MUSIC' || error.code === 'E_MUSIC_AUTHORITY');
+  }
+});
+
+test('frozen contracts preserve the complete selected direction, semantic roles, and Look treatment', async (t) => {
+  const { root, approval, candidates } = await fixture(t);
+  const validated = await validateDirectorApproval(root);
+  const design = compileApprovedDesign(validated.draftDesign, validated.selectedCandidate, approval, NOW);
+  const look = compileApprovedLook(validated.draftLook, validated.selectedCandidate, approval, NOW);
+  assert.deepEqual(design.selectedDirection.candidate, candidates[0]);
+  for (const role of ['color.background', 'color.primaryText', 'color.accent', 'color.signal', 'color.dataPrimary']) assert.match(design.tokens.colors[role], /^#[0-9A-Fa-f]{6}$/);
+  assert.deepEqual(look.selectedLook, candidates[0].lookCandidate);
+});
+
+test('lock independently hashes staged workbench bytes and revalidates authority before state commit', async (t) => {
+  const { root } = await fixture(t);
+  const proposalPath = join(root, 'direction/DIRECTION_PROPOSALS.json');
+  const maliciousBuilder = async ({ selectedCandidate, state }) => {
+    const proposals = JSON.parse(await readFile(proposalPath, 'utf8'));
+    proposals.candidates[0].title = 'changed after validation';
+    await writeJson(proposalPath, proposals);
+    return { html: `<html data-state-revision="${state.revision}"><h1>${selectedCandidate.title}</h1><p>Locked direction · read-only</p></html>\n`, digest: 'f'.repeat(64) };
+  };
+  await assert.rejects(() => lockDirection(root, { now: () => NOW, rebuildWorkbench: maliciousBuilder }), (error) => ['E_LOCK_INPUT_STALE', 'E_WORKBENCH_REBUILD'].includes(error.code));
+  assert.equal(JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8')).state, 'DIRECTOR_REVIEW_READY');
+});
+
+test('committed direction validates schemas, exact gate records, frozen origins, and canonical workbench bytes', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  await writeFile(join(root, 'review/director-workbench.html'), '<html>forged locked view</html>\n');
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+});
+
+test('repair persistence serializes attempts and crash recovery prevents split history/state', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const context = (index, extra = {}) => ({ gate: 'FINAL_QA', reason: `collision ${index}`, timestamp: `2026-09-01T12:0${index}:00.000Z`, beforeDigests: { MOTION_MAP: HEX(`b${index}`) }, afterDigests: { MOTION_MAP: HEX(`a${index}`) }, ...extra });
+  const concurrent = await Promise.allSettled([
+    persistApprovedRepair(root, { repairClass: 'position', role: 'MOTION_MAP' }, context(1)),
+    persistApprovedRepair(root, { repairClass: 'position', role: 'MOTION_MAP' }, context(2)),
+  ]);
+  assert.equal(concurrent.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal(concurrent.filter(({ status }) => status === 'rejected' && status).length, 1);
+  await assert.rejects(() => persistApprovedRepair(root, { repairClass: 'position', role: 'MOTION_MAP' }, context(3, { injectFailure: 'afterHistoryRename' })), (error) => error.code === 'E_INJECTED_FAILURE');
+  const recovery = await Promise.allSettled([
+    persistApprovedRepair(root, { repairClass: 'position', role: 'MOTION_MAP' }, context(4)),
+    persistApprovedRepair(root, { repairClass: 'position', role: 'MOTION_MAP' }, context(5)),
+  ]);
+  assert.equal(recovery.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal(recovery.filter(({ status, reason }) => status === 'rejected' && reason.code === 'E_REPAIR_BUSY').length, 1);
+  const history = JSON.parse(await readFile(join(root, 'cache/REPAIR_HISTORY.json'), 'utf8'));
+  const state = JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8'));
+  assert.equal(history.integrity.upstream.projectState, state.integrity.digest);
+  assert.equal(new Set(history.repairs.map(({ attempt }) => attempt)).size, history.repairs.length);
+  assert.ok(history.repairs.length <= 3);
+});
+
+test('lock journal validation rejects shape drift and PID reuse identity recovers under exclusive takeover', async (t) => {
+  const malformed = await fixture(t);
+  await assert.rejects(() => lockDirection(malformed.root, { now: () => NOW, rebuildWorkbench: malformed.rebuildWorkbench, injectFailure: 'afterTemporaryWrites' }), (error) => error.code === 'E_INJECTED_FAILURE');
+  const journalPath = join(malformed.root, 'cache/direction-lock.transaction.json');
+  const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+  journal.unexpected = true;
+  await writeJson(journalPath, journal);
+  await assert.rejects(() => lockDirection(malformed.root, { now: () => NOW, rebuildWorkbench: malformed.rebuildWorkbench }), (error) => error.code === 'E_LOCK_JOURNAL_INVALID');
+
+  const reused = await fixture(t);
+  await assert.rejects(() => lockDirection(reused.root, { now: () => NOW, rebuildWorkbench: reused.rebuildWorkbench, injectFailure: 'afterTemporaryWrites' }), (error) => error.code === 'E_INJECTED_FAILURE');
+  const reusedPath = join(reused.root, 'cache/direction-lock.transaction.json');
+  const reusedJournal = JSON.parse(await readFile(reusedPath, 'utf8'));
+  reusedJournal.owner.active = true;
+  reusedJournal.owner.pid = process.pid;
+  reusedJournal.owner.processStartId = 'pid-reused-start-identity';
+  await writeJson(reusedPath, reusedJournal);
+  const outcomes = await Promise.allSettled([
+    lockDirection(reused.root, { now: () => NOW, rebuildWorkbench: reused.rebuildWorkbench }),
+    lockDirection(reused.root, { now: () => NOW, rebuildWorkbench: reused.rebuildWorkbench }),
+  ]);
+  assert.equal(outcomes.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal((await validateCommittedDirection(reused.root)).state.state, 'DIRECTOR_LOCK');
+});
+
+test('state is committed before the locked view becomes visible and state-renamed recovery publishes the exact staged bytes', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(() => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'afterStateCommit' }), (error) => error.code === 'E_INJECTED_FAILURE');
+  assert.equal(JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8')).state, 'DIRECTOR_LOCK');
+  assert.match(await readFile(join(root, 'review/director-workbench.html'), 'utf8'), /data-approve/);
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+  const recovered = await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  assert.equal(recovered.recovered, true);
+  assert.equal((await validateCommittedDirection(root)).state.state, 'DIRECTOR_LOCK');
+});
+
+test('committed consumer rejects wrong lock qualifier and repair journal rejects structural drift', async (t) => {
+  const direction = await fixture(t);
+  await lockDirection(direction.root, { now: () => NOW, rebuildWorkbench: direction.rebuildWorkbench });
+  const statePath = join(direction.root, 'PROJECT_STATE.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.gateEvidence.find(({ gate, role }) => gate === 'DIRECTOR_LOCK' && role === 'WORKBENCH').qualifiers = ['accepted'];
+  await writeJson(statePath, state);
+  await assert.rejects(() => validateCommittedDirection(direction.root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+
+  const origin = await fixture(t);
+  await lockDirection(origin.root, { now: () => NOW, rebuildWorkbench: origin.rebuildWorkbench });
+  const originStatePath = join(origin.root, 'PROJECT_STATE.json');
+  const originState = JSON.parse(await readFile(originStatePath, 'utf8'));
+  originState.gateEvidence.filter(({ gate }) => gate === 'DIRECTOR_LOCK').forEach((record) => { record.producerCommand = 'forged-lock.mjs'; });
+  await writeJson(originStatePath, originState);
+  await assert.rejects(() => validateCommittedDirection(origin.root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+
+  const repair = await fixture(t);
+  await lockDirection(repair.root, { now: () => NOW, rebuildWorkbench: repair.rebuildWorkbench });
+  await assert.rejects(() => persistApprovedRepair(repair.root, { repairClass: 'position', role: 'MOTION_MAP' }, { gate: 'FINAL_QA', reason: 'collision', timestamp: NOW, beforeDigests: { MOTION_MAP: HEX('before') }, afterDigests: { MOTION_MAP: HEX('after') }, injectFailure: 'afterHistoryRename' }), (error) => error.code === 'E_INJECTED_FAILURE');
+  const repairJournalPath = join(repair.root, 'cache/repair.transaction.json');
+  const repairJournal = JSON.parse(await readFile(repairJournalPath, 'utf8'));
+  repairJournal.unexpected = true;
+  await writeJson(repairJournalPath, repairJournal);
+  await assert.rejects(() => persistApprovedRepair(repair.root, { repairClass: 'position', role: 'MOTION_MAP' }, { gate: 'FINAL_QA', reason: 'again', timestamp: '2026-09-01T12:01:00.000Z', beforeDigests: {}, afterDigests: {} }), (error) => error.code === 'E_REPAIR_JOURNAL_INVALID');
 });

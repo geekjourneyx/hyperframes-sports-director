@@ -80,6 +80,7 @@ function stampIntegrity(value) {
 }
 
 function gateSpecifications(state) {
+  if (state === 'DIRECTOR_LOCK') return [['DESIGN_SYSTEM', 'frozen'], ['LOOK_PROFILE', 'frozen'], ['DIRECTOR_APPROVAL', 'consumed'], ['WORKBENCH', 'state-bound']];
   if (state === 'STYLE_ANCHOR') return [['DESIGN_SYSTEM', 'frozen'], ['LOOK_PROFILE', 'frozen'], ['ASSET_PLAN', 'approved']];
   if (state === 'ASSET_PRODUCTION') return [['STYLE_ANCHOR', 'accepted'], ['REPRESENTATIVE_COMBINATION', 'accepted']];
   if (state === 'DELIVERED') {

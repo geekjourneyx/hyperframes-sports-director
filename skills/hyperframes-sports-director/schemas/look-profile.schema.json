@@ -16,8 +16,15 @@
     "output": { "type": "object", "required": ["colorSpace"], "additionalProperties": false, "properties": { "colorSpace": { "const": "rec709-sdr" } } },
     "adjustments": { "type": "object", "required": ["whiteBalance", "exposure", "contrast", "saturation", "highlightProtection"], "additionalProperties": false, "properties": { "whiteBalance": { "type": "number" }, "exposure": { "type": "number" }, "contrast": { "type": "number" }, "saturation": { "type": "number", "minimum": 0 }, "highlightProtection": { "type": "number", "minimum": 0, "maximum": 1 } } },
     "shotMatchingPolicy": { "enum": ["conservative", "balanced"] },
+    "selectedLook": { "type": "object", "required": ["candidateId", "treatment", "grain"], "additionalProperties": false, "properties": {
+      "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" }, "treatment": { "type": "string", "minLength": 1 }, "grain": { "type": "string", "minLength": 1 }
+    } },
+    "directionBinding": { "type": "object", "required": ["candidateId", "candidateDigest"], "additionalProperties": false, "properties": {
+      "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" }, "candidateDigest": { "$ref": "#/$defs/digest" }
+    } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
+  "allOf": [{ "if": { "properties": { "status": { "const": "frozen" } } }, "then": { "properties": { "selectedLook": true, "directionBinding": true }, "required": ["selectedLook", "directionBinding"] } }],
   "additionalProperties": false,
   "$defs": {
     "status": { "enum": ["draft", "proposed", "approved", "frozen", "superseded"] },

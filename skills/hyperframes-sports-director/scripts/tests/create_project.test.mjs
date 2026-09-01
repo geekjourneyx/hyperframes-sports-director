@@ -109,7 +109,14 @@ function evidenceRecord(gate, role, qualifiers = ['accepted'], digest = DIGEST) 
 
 function evidenceFor(next) {
   let records;
-  if (next === 'STYLE_ANCHOR') {
+  if (next === 'DIRECTOR_LOCK') {
+    records = [
+      evidenceRecord(next, 'DESIGN_SYSTEM', ['frozen']),
+      evidenceRecord(next, 'LOOK_PROFILE', ['frozen']),
+      evidenceRecord(next, 'DIRECTOR_APPROVAL', ['consumed']),
+      evidenceRecord(next, 'WORKBENCH', ['state-bound']),
+    ];
+  } else if (next === 'STYLE_ANCHOR') {
     records = [
       evidenceRecord(next, 'DESIGN_SYSTEM', ['frozen']),
       evidenceRecord(next, 'LOOK_PROFILE', ['frozen']),
