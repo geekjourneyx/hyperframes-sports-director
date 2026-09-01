@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 
 import { computeArtifactDigest } from '../lib/contracts.mjs';
 import * as approvalModule from '../lib/approval.mjs';
+import { buildWorkbenchModel } from '../lib/director-workbench.mjs';
 import {
   ApprovalError,
   compileApprovedDesign,
@@ -204,6 +205,27 @@ async function fixture(t) {
   await writeJson(join(root, 'direction/DESIGN_SYSTEM.json'), draftDesign());
   await writeJson(join(root, 'direction/LOOK_PROFILE.json'), draftLook());
   await writeJson(join(root, 'PROJECT_STATE.json'), stateAtReview());
+
+  // A real Task 10 project already owns this content-addressed immutable bundle.
+  // Mirror those exact resources so Task 11 snapshot URL resolution exercises the production layout.
+  const lockedModel = await buildWorkbenchModel(root);
+  const publishFixtureResource = async (portablePath, bytes) => {
+    await mkdir(dirname(join(root, portablePath)), { recursive: true });
+    await writeFile(join(root, portablePath), bytes);
+  };
+  await publishFixtureResource(lockedModel.stylesheetPath, await readFile(new URL('../../assets/director-workbench/workbench.css', import.meta.url)));
+  await publishFixtureResource(lockedModel.scriptPath, await readFile(new URL('../../assets/director-workbench/workbench.js', import.meta.url)));
+  await publishFixtureResource(lockedModel.roughCut.path, 'closed proxy rough cut');
+  for (const frame of lockedModel.keyFrames) await publishFixtureResource(frame.path, frameBytes);
+  for (const [index, lockedCandidate] of lockedModel.proposals.candidates.entries()) {
+    const sourceCandidate = candidates[index];
+    for (const [target, source] of lockedCandidate.layoutProofs.map((target, proofIndex) => [target, sourceCandidate.layoutProofs[proofIndex]])) {
+      await publishFixtureResource(target, await readFile(join(root, source)));
+    }
+    for (const [target, source] of lockedCandidate.motionStoryboard.map((target, proofIndex) => [target, sourceCandidate.motionStoryboard[proofIndex]])) {
+      await publishFixtureResource(target, await readFile(join(root, source)));
+    }
+  }
 
   const rebuildWorkbench = async ({ canonicalHtml }) => {
     return { html: canonicalHtml };
@@ -509,12 +531,148 @@ test('committed direction validates schemas, exact gate records, frozen origins,
   await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
 });
 
+test('immutable lock snapshot has an independent inode and survives in-place current-view corruption', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
+  const currentPath = join(root, 'review/director-workbench.html');
+  const [snapshotMetadata, currentMetadata, snapshot] = await Promise.all([
+    lstat(snapshotPath), lstat(currentPath), readFile(snapshotPath, 'utf8'),
+  ]);
+  assert.notDeepEqual(
+    [snapshotMetadata.dev, snapshotMetadata.ino],
+    [currentMetadata.dev, currentMetadata.ino],
+    'mutable current view must never share the immutable snapshot inode',
+  );
+  const snapshotDigest = SHA(snapshot);
+
+  const current = await open(currentPath, 'r+');
+  await current.truncate(0);
+  await current.writeFile('<html>corrupted in place</html>\n');
+  await current.close();
+
+  assert.equal(await readFile(snapshotPath, 'utf8'), snapshot);
+  assert.equal(SHA(await readFile(snapshotPath)), snapshotDigest);
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+  await assert.rejects(() => approvalModule.validatePostLockWorkbench(root), (error) => error.code === 'E_WORKBENCH_CURRENT_STALE');
+  await approvalModule.buildPostLockWorkbench(root);
+  assert.equal((await validateCommittedDirection(root)).workbenchDigest, snapshotDigest);
+});
+
+test('lock publication and committed validation reject dangling or byte-identical symlink evidence', async (t) => {
+  const beforeCommit = await fixture(t);
+  const expectedSnapshot = join(beforeCommit.root, 'review/director-lock.snapshot.html');
+  await symlink('missing-lock-snapshot.html', expectedSnapshot);
+  await assert.rejects(
+    () => lockDirection(beforeCommit.root, { now: () => NOW, rebuildWorkbench: beforeCommit.rebuildWorkbench }),
+    (error) => error.code === 'E_LOCK_SNAPSHOT_EXISTS',
+  );
+  assert.equal(JSON.parse(await readFile(join(beforeCommit.root, 'PROJECT_STATE.json'), 'utf8')).state, 'DIRECTOR_REVIEW_READY');
+
+  const replacedSnapshot = await fixture(t);
+  await lockDirection(replacedSnapshot.root, { now: () => NOW, rebuildWorkbench: replacedSnapshot.rebuildWorkbench });
+  const snapshotPath = join(replacedSnapshot.root, 'review/director-lock.snapshot.html');
+  const snapshot = await readFile(snapshotPath);
+  const replacementPath = join(replacedSnapshot.root, 'review/byte-identical-lock.html');
+  await writeFile(replacementPath, snapshot);
+  await unlink(snapshotPath);
+  await symlink('byte-identical-lock.html', snapshotPath);
+  await assert.rejects(() => validateCommittedDirection(replacedSnapshot.root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+
+  const replacedCurrent = await fixture(t);
+  await lockDirection(replacedCurrent.root, { now: () => NOW, rebuildWorkbench: replacedCurrent.rebuildWorkbench });
+  const currentPath = join(replacedCurrent.root, 'review/director-workbench.html');
+  const current = await readFile(currentPath);
+  const currentReplacement = join(replacedCurrent.root, 'review/byte-identical-current.html');
+  await writeFile(currentReplacement, current);
+  await unlink(currentPath);
+  await symlink('byte-identical-current.html', currentPath);
+  await assert.rejects(() => validateCommittedDirection(replacedCurrent.root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+});
+
+test('state-committed recovery rejects a byte-identical staged symlink instead of publishing it', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'afterStateCommit' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const journal = JSON.parse(await readFile(join(root, 'cache/direction-lock.transaction.json'), 'utf8'));
+  const stagedPath = join(root, journal.workbenchTemp);
+  const replacementPath = join(root, 'cache/byte-identical-staged.html');
+  await writeFile(replacementPath, await readFile(stagedPath));
+  await unlink(stagedPath);
+  await symlink('byte-identical-staged.html', stagedPath);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench }),
+    (error) => error.code === 'E_LOCK_JOURNAL_INVALID',
+  );
+  await assert.rejects(() => stat(join(root, 'review/director-lock.snapshot.html')), (error) => error.code === 'ENOENT');
+});
+
+test('lock snapshot local resource URLs resolve from the immutable page without duplicated asset roots', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
+  const html = await readFile(snapshotPath, 'utf8');
+  const urls = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)].map((match) => decodeURIComponent(match[1]));
+  assert.ok(urls.length > 0);
+  for (const url of urls) {
+    assert.doesNotMatch(url, /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i);
+    const resolved = resolve(dirname(snapshotPath), url);
+    assert.equal(relative(join(root, 'review'), resolved).startsWith('..'), false, `${url} must stay inside review`);
+    const metadata = await lstat(resolved);
+    assert.equal(metadata.isFile() && !metadata.isSymbolicLink(), true, `${url} must resolve to a regular local derivative`);
+    assert.doesNotMatch(resolved, /workbench-assets\/workbench-assets/);
+  }
+});
+
+test('post-lock forbidden repair rebuilds a canonical BLOCKED view from immutable lock evidence', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
+  const snapshot = await readFile(snapshotPath, 'utf8');
+  const blocked = await persistApprovedRepair(root, { repairClass: 'token', role: 'DESIGN_SYSTEM' }, {
+    gate: 'FINAL_QA', reason: 'requested palette crosses the approved boundary', timestamp: '2026-09-01T12:10:00.000Z',
+    beforeDigests: { DESIGN_SYSTEM: HEX('design-before') }, afterDigests: { DESIGN_SYSTEM: HEX('design-after') },
+  });
+  assert.equal(blocked.projectState.state, 'BLOCKED');
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+
+  const built = await approvalModule.buildPostLockWorkbench(root);
+  const current = await readFile(join(root, 'review/director-workbench.html'), 'utf8');
+  assert.match(current, /data-state="BLOCKED"/);
+  assert.match(current, /<li class="is-current is-terminal">BLOCKED<\/li>/);
+  assert.match(current, /CURRENT GATE EVIDENCE|APPROVAL BOUNDARY CROSSED/);
+  assert.doesNotMatch(current, /<li class="is-current">INTAKE<\/li>/);
+  assert.doesNotMatch(current, /data-approve|Approve/);
+  assert.equal((await approvalModule.validatePostLockWorkbench(root)).digest, built.digest);
+  assert.equal(await readFile(snapshotPath, 'utf8'), snapshot);
+});
+
+test('post-lock cancellation rebuilds a canonical CANCELLED current view without reopening approval', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
+  const snapshot = await readFile(snapshotPath, 'utf8');
+  await advanceProjectState(root, 'CANCELLED', '2026-09-01T12:15:00.000Z');
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+
+  const built = await approvalModule.buildPostLockWorkbench(root);
+  const current = await readFile(join(root, 'review/director-workbench.html'), 'utf8');
+  assert.match(current, /data-state="CANCELLED"/);
+  assert.match(current, /<li class="is-current is-terminal">CANCELLED<\/li>/);
+  assert.match(current, /CURRENT GATE EVIDENCE|CANCELLED EVIDENCE/);
+  assert.doesNotMatch(current, /<li class="is-current">INTAKE<\/li>|data-approve|Approve/);
+  assert.equal((await approvalModule.validatePostLockWorkbench(root)).digest, built.digest);
+  assert.equal(await readFile(snapshotPath, 'utf8'), snapshot);
+});
+
 test('post-lock workbench rebuild advances current evidence without changing immutable approval evidence', async (t) => {
   assert.equal(typeof approvalModule.buildPostLockWorkbench, 'function');
   assert.equal(typeof approvalModule.validatePostLockWorkbench, 'function');
   const { root, rebuildWorkbench } = await fixture(t);
   await lockDirection(root, { now: () => NOW, rebuildWorkbench });
-  const snapshotPath = join(root, 'review/workbench-assets/director-lock.snapshot.html');
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
   const snapshot = await readFile(snapshotPath, 'utf8');
   assert.equal(await readFile(join(root, 'review/director-workbench.html'), 'utf8'), snapshot);
 
@@ -543,7 +701,7 @@ test('post-lock workbench rebuild advances current evidence without changing imm
   assert.doesNotMatch(current, /Kinetic Ledger|data-approve|Approve/);
   assert.equal(await readFile(snapshotPath, 'utf8'), snapshot);
   assert.equal((await stat(snapshotPath)).isFile(), true);
-  assert.deepEqual((await readdir(join(root, 'review/workbench-assets'))).filter((name) => name.startsWith('director-lock.')), ['director-lock.snapshot.html']);
+  assert.deepEqual((await readdir(join(root, 'review'))).filter((name) => name.startsWith('director-lock.')), ['director-lock.snapshot.html']);
   assert.equal((await approvalModule.validatePostLockWorkbench(root)).digest, rebuilt.digest);
   assert.equal((await validateCommittedDirection(root)).state.state, 'MOTION_COMPOSITION');
 });
@@ -562,7 +720,7 @@ test('immutable lock snapshot authorizes direction while mutable current-view bi
   await assert.rejects(() => approvalModule.validatePostLockWorkbench(root), (error) => error.code === 'E_WORKBENCH_CURRENT_STALE');
 
   await approvalModule.buildPostLockWorkbench(root);
-  const snapshotPath = join(root, 'review/workbench-assets/director-lock.snapshot.html');
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
   const snapshot = await readFile(snapshotPath, 'utf8');
   await writeFile(snapshotPath, `${snapshot}\n<!-- forged lock evidence -->\n`);
   await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
@@ -575,7 +733,7 @@ test('immutable lock evidence model excludes hidden state fields that can disclo
   state.gateEvidence[0].producerCommand = '/Users/alice/Private Ride/action.mov';
   await writeJson(statePath, state);
   await lockDirection(root, { now: () => NOW, rebuildWorkbench });
-  const snapshot = await readFile(join(root, 'review/workbench-assets/director-lock.snapshot.html'), 'utf8');
+  const snapshot = await readFile(join(root, 'review/director-lock.snapshot.html'), 'utf8');
   assert.doesNotMatch(snapshot, /\/Users\/alice|Private Ride|action\.mov/);
   assert.match(snapshot, /KEY FRAMES|SHOT LEDGER \/ ROUGH CUT/);
   await validateCommittedDirection(root);

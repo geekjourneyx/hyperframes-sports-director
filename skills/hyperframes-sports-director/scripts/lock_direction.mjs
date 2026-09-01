@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { createHash, randomBytes } from 'node:crypto';
-import { link, open, readFile, rename, unlink } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { constants } from 'node:fs';
+import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { errorResult, parseCliArguments } from './lib/cli.mjs';
 import { ApprovalError, compileApprovedDesign, compileApprovedLook, LOCK_WORKBENCH_SNAPSHOT_PATH, renderLockedWorkbench, revalidateDirectorApprovalInputs, validateCommittedDirection, validateDirectorApproval } from './lib/approval.mjs';
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './lib/contracts.mjs';
 import { buildWorkbenchModel } from './lib/director-workbench.mjs';
-import { projectPath, sha256File } from './lib/media.mjs';
+import { projectPath } from './lib/media.mjs';
 import { commitDirectorLockState } from './lib/project-state.mjs';
 
 const PATHS = Object.freeze({ journal: 'cache/direction-lock.transaction.json', guard: 'cache/direction-lock.guard.json', design: 'direction/DESIGN_SYSTEM.json', look: 'direction/LOOK_PROFILE.json', state: 'PROJECT_STATE.json', approval: 'direction/DIRECTOR_APPROVAL.json', proposals: 'direction/DIRECTION_PROPOSALS.json', workbench: 'review/director-workbench.html', snapshot: LOCK_WORKBENCH_SNAPSHOT_PATH });
@@ -16,6 +17,23 @@ const PHASES = new Set(['validated', 'temps-written', 'design-renamed', 'pair-re
 
 async function syncDirectory(path) { const handle = await open(dirname(path), 'r'); try { await handle.sync(); } finally { await handle.close(); } }
 async function writeDurable(path, bytes, flag = 'w') { const handle = await open(path, flag, 0o600); try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); } }
+async function readRegularFile(path, code, message) {
+  let observed; let handle;
+  try {
+    observed = await lstat(path);
+    if (!observed.isFile() || observed.isSymbolicLink()) throw new ApprovalError(code, message);
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== observed.dev || opened.ino !== observed.ino) throw new ApprovalError(code, message);
+    const bytes = await handle.readFile();
+    return { bytes, metadata: opened };
+  } catch (error) {
+    if (error instanceof ApprovalError) throw error;
+    throw new ApprovalError(code, message, { cause: error });
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
 async function writeAtomic(path, bytes, token = randomBytes(16).toString('hex')) {
   const temporary = `${path}.${process.pid}.${token}.tmp`;
   try { await writeDurable(temporary, bytes, 'wx'); await rename(temporary, path); await syncDirectory(path); }
@@ -157,7 +175,7 @@ function projectedState(state, journal, pair, approval, workbenchDigest) {
 
 async function assertSnapshotAbsent(projectRoot) {
   try {
-    await readFile(projectPath(projectRoot, PATHS.snapshot));
+    await lstat(join(projectRoot, PATHS.snapshot));
     throw new ApprovalError('E_LOCK_SNAPSHOT_EXISTS', 'immutable direction-lock workbench snapshot already exists');
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
@@ -165,29 +183,47 @@ async function assertSnapshotAbsent(projectRoot) {
 }
 
 async function publishSnapshotAndCurrent(projectRoot, journal) {
-  const tempPath = projectPath(projectRoot, journal.workbenchTemp);
-  const snapshotPath = projectPath(projectRoot, journal.snapshotPath);
-  const currentPath = projectPath(projectRoot, PATHS.workbench);
+  const tempPath = join(projectRoot, journal.workbenchTemp);
+  const snapshotPath = join(projectRoot, journal.snapshotPath);
+  const currentPath = join(projectRoot, PATHS.workbench);
+  let staged;
   try {
-    await link(tempPath, snapshotPath);
+    staged = await readRegularFile(tempPath, 'E_LOCK_JOURNAL_INVALID', 'staged workbench is not a regular transaction-owned file');
+    if (!staged.bytes.equals(Buffer.from(journal.lockedHtml))) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged workbench bytes changed after state commit');
+    await writeDurable(snapshotPath, staged.bytes, 'wx');
     await syncDirectory(snapshotPath);
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      const [snapshot, current] = await Promise.all([readFile(snapshotPath, 'utf8'), readFile(currentPath, 'utf8')]);
-      if (snapshot !== journal.lockedHtml || current !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes changed after state commit');
+    if (error.code === 'ENOENT' || error.cause?.code === 'ENOENT') {
+      const [snapshot, current] = await Promise.all([
+        readRegularFile(snapshotPath, 'E_LOCK_JOURNAL_INVALID', 'published snapshot is not a regular file'),
+        readRegularFile(currentPath, 'E_LOCK_JOURNAL_INVALID', 'published current workbench is not a regular file'),
+      ]);
+      if (!snapshot.bytes.equals(Buffer.from(journal.lockedHtml)) || !current.bytes.equals(Buffer.from(journal.lockedHtml))
+        || (snapshot.metadata.dev === current.metadata.dev && snapshot.metadata.ino === current.metadata.ino)) {
+        throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes or inode isolation changed after state commit');
+      }
       return;
     }
     if (error.code !== 'EEXIST') throw error;
-    const existing = await readFile(snapshotPath, 'utf8');
-    if (existing !== journal.lockedHtml) throw new ApprovalError('E_LOCK_SNAPSHOT_EXISTS', 'immutable direction-lock snapshot bytes differ from the journal');
+    const existing = await readRegularFile(snapshotPath, 'E_LOCK_SNAPSHOT_EXISTS', 'immutable direction-lock snapshot is not a regular file');
+    if (!existing.bytes.equals(Buffer.from(journal.lockedHtml))) throw new ApprovalError('E_LOCK_SNAPSHOT_EXISTS', 'immutable direction-lock snapshot bytes differ from the journal');
   }
   try {
+    staged ??= await readRegularFile(tempPath, 'E_LOCK_JOURNAL_INVALID', 'staged workbench is not a regular transaction-owned file');
     await rename(tempPath, currentPath);
     await syncDirectory(currentPath);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    const current = await readFile(currentPath, 'utf8');
-    if (current !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published current workbench differs from the immutable lock snapshot');
+    const current = await readRegularFile(currentPath, 'E_LOCK_JOURNAL_INVALID', 'published current workbench is not a regular file');
+    if (!current.bytes.equals(Buffer.from(journal.lockedHtml))) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published current workbench differs from the immutable lock snapshot');
+  }
+  const [snapshot, current] = await Promise.all([
+    readRegularFile(snapshotPath, 'E_LOCK_JOURNAL_INVALID', 'published snapshot is not a regular file'),
+    readRegularFile(currentPath, 'E_LOCK_JOURNAL_INVALID', 'published current workbench is not a regular file'),
+  ]);
+  if (!snapshot.bytes.equals(Buffer.from(journal.lockedHtml)) || !current.bytes.equals(Buffer.from(journal.lockedHtml))
+    || (snapshot.metadata.dev === current.metadata.dev && snapshot.metadata.ino === current.metadata.ino)) {
+    throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes or inode isolation are invalid');
   }
 }
 
@@ -202,14 +238,15 @@ async function stageAndCommit(projectRoot, journal, pair, options) {
     const built = options.rebuildWorkbench ? await options.rebuildWorkbench({ projectRoot, selectedCandidate: journal.selectedCandidate, state: placeholder, model, canonicalHtml }) : { html: canonicalHtml };
     html = typeof built === 'string' ? built : built?.html;
     if (html !== canonicalHtml) throw new ApprovalError('E_WORKBENCH_REBUILD', 'locked workbench builder must return the canonical state-bound bytes');
-    await writeDurable(projectPath(projectRoot, journal.workbenchTemp), html, 'wx'); journal.lockedHtml = html; journal.phase = 'workbench-staged'; await writeJournal(projectRoot, journal);
+    await writeDurable(join(projectRoot, journal.workbenchTemp), html, 'wx'); journal.lockedHtml = html; journal.phase = 'workbench-staged'; await writeJournal(projectRoot, journal);
   } else {
-    const staged = await readFile(projectPath(projectRoot, journal.workbenchTemp), 'utf8');
-    if (typeof html !== 'string' || staged !== html) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged locked workbench does not match its journal');
+    const staged = await readRegularFile(join(projectRoot, journal.workbenchTemp), 'E_LOCK_JOURNAL_INVALID', 'staged workbench is not a regular transaction-owned file');
+    if (typeof html !== 'string' || !staged.bytes.equals(Buffer.from(html))) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged locked workbench does not match its journal');
   }
   const currentAuthority = await revalidateDirectorApprovalInputs(projectRoot, journal.inputDigests);
   if (computeArtifactDigest(currentAuthority.selectedCandidate) !== computeArtifactDigest(journal.selectedCandidate)) throw new ApprovalError('E_LOCK_JOURNAL_STALE', 'journal selected candidate no longer matches current approval');
-  const digest = await sha256File(projectPath(projectRoot, journal.workbenchTemp)); const committed = projectedState(state, journal, pair, approval, digest);
+  const staged = await readRegularFile(join(projectRoot, journal.workbenchTemp), 'E_LOCK_JOURNAL_INVALID', 'staged workbench is not a regular transaction-owned file');
+  const digest = createHash('sha256').update(staged.bytes).digest('hex'); const committed = projectedState(state, journal, pair, approval, digest);
   const validation = validateDocument(await loadSchema('project-state'), committed); if (!validation.valid) throw new ApprovalError('E_STATE_INVALID', 'DIRECTOR_LOCK state is schema-invalid', { diagnostics: validation.errors });
   await assertSnapshotAbsent(projectRoot);
   journal.phase = 'state-intent'; await writeJournal(projectRoot, journal);
@@ -246,12 +283,21 @@ async function recover(projectRoot, options) {
     const workbenchDigest = createHash('sha256').update(journal.lockedHtml).digest('hex');
     const expected = projectedState(journal.priorState, journal, pair, approval, workbenchDigest);
     if (state.integrity?.digest !== expected.integrity.digest) throw new ApprovalError('E_LOCK_JOURNAL_STALE', 'state-intent does not match the journaled DIRECTOR_LOCK state');
-    const tempPath = projectPath(projectRoot, journal.workbenchTemp);
-    try { if (await readFile(tempPath, 'utf8') !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged workbench bytes changed'); }
+    const tempPath = join(projectRoot, journal.workbenchTemp);
+    try {
+      const staged = await readRegularFile(tempPath, 'E_LOCK_JOURNAL_INVALID', 'staged workbench is not a regular transaction-owned file');
+      if (!staged.bytes.equals(Buffer.from(journal.lockedHtml))) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged workbench bytes changed');
+    }
     catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      const [snapshot, current] = await Promise.all([readFile(projectPath(projectRoot, PATHS.snapshot), 'utf8'), readFile(projectPath(projectRoot, PATHS.workbench), 'utf8')]);
-      if (snapshot !== journal.lockedHtml || current !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes changed after state commit');
+      if (error.code !== 'ENOENT' && error.cause?.code !== 'ENOENT') throw error;
+      const [snapshot, current] = await Promise.all([
+        readRegularFile(join(projectRoot, PATHS.snapshot), 'E_LOCK_JOURNAL_INVALID', 'published snapshot is not a regular file'),
+        readRegularFile(join(projectRoot, PATHS.workbench), 'E_LOCK_JOURNAL_INVALID', 'published current workbench is not a regular file'),
+      ]);
+      if (!snapshot.bytes.equals(Buffer.from(journal.lockedHtml)) || !current.bytes.equals(Buffer.from(journal.lockedHtml))
+        || (snapshot.metadata.dev === current.metadata.dev && snapshot.metadata.ino === current.metadata.ino)) {
+        throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes or inode isolation changed after state commit');
+      }
     }
     await publishSnapshotAndCurrent(projectRoot, journal);
     journal.phase = 'workbench-published'; await writeJournal(projectRoot, journal);

@@ -21,6 +21,7 @@ const STAGES = [
   'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION',
   'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED',
 ];
+const TERMINAL_STAGES = new Set(['BLOCKED', 'CANCELLED']);
 const MIME = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.css', 'text/css; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'],
   ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.png', 'image/png'], ['.webp', 'image/webp'], ['.svg', 'image/svg+xml'],
@@ -155,7 +156,9 @@ function renderContent(model) {
   const active = model.proposals.candidates[0];
   const total = Math.max(...model.timeline.items.map(({ destinationOutSeconds }) => destinationOutSeconds), 1);
   const locked = typeof model.lockedBinding === 'string';
-  const stageIndex = Math.max(0, STAGES.indexOf(model.state.state));
+  const terminal = TERMINAL_STAGES.has(model.state.state);
+  const currentStage = terminal ? model.state.previousState : model.state.state;
+  const stageIndex = Math.max(0, STAGES.indexOf(currentStage));
   const gateLabel = locked ? 'DIRECTOR LOCK' : 'DIRECTOR REVIEW';
   const gateNote = locked ? 'Read-only' : 'One approval';
   return `<main class="workbench-shell">
@@ -173,7 +176,7 @@ function renderContent(model) {
   </div>
   <aside class="production-rail">
     <div class="rail-kicker"><span>${gateLabel}</span><span>Rev ${model.proposals.revision}</span></div>
-    <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}</ol>
+    <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex || (terminal && index === stageIndex) ? 'is-complete' : !terminal && index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}${terminal ? `<li class="is-current is-terminal">${escapeHtml(model.state.state)}</li>` : ''}</ol>
     ${renderCurrentGateEvidence(model)}
     <section class="rail-section"><h3>BRIEF</h3><h2>${escapeHtml(model.brief.copy.title ?? 'Untitled journey')}</h2><p class="rail-copy">${escapeHtml(model.brief.story.tone ?? 'observational')} · ${model.brief.duration.targetSeconds}s · ${escapeHtml(model.brief.story.pacing)}</p></section>
     ${model.approvalAvailable ? renderApprovalZone(active) : ''}
