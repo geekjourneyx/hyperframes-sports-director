@@ -48,12 +48,13 @@ export function loadProfile(kind, name) {
   }
 
   validateProfile(value, descriptor, kind, name);
+  const profileDocument = cloneAndFreeze(value);
   return Object.freeze({
-    id: value.id,
-    kind: value.kind,
-    maturity: value.maturity,
-    policies: value.policies,
-    profileDigest: computeArtifactDigest(value),
+    id: profileDocument.id,
+    kind: profileDocument.kind,
+    maturity: profileDocument.maturity,
+    policies: profileDocument.policies,
+    profileDigest: computeArtifactDigest(profileDocument),
   });
 }
 
@@ -107,7 +108,7 @@ export function resolvePolicies(options) {
     });
   }
 
-  const policies = Object.freeze({
+  const policies = cloneAndFreeze({
     ...sport.policies,
     ...device.policies,
     ...delivery.policies,
@@ -161,4 +162,14 @@ function sameRaster(left, right) {
     && Number.isInteger(right.width) && Number.isInteger(right.height)
     && left.width > 0 && left.height > 0
     && left.width === right.width && left.height === right.height;
+}
+
+function cloneAndFreeze(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(cloneAndFreeze));
+  if (value !== null && typeof value === 'object') {
+    return Object.freeze(Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, cloneAndFreeze(nested)]),
+    ));
+  }
+  return value;
 }

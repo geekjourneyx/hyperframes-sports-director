@@ -105,3 +105,31 @@ test('resolution composition rejects unknown options and conflicting raster or a
     (error) => error.code === 'E_PROFILE_UNKNOWN_KIND',
   );
 });
+
+test('profile and composed policy documents reject nested mutation after digesting', () => {
+  const profile = loadProfile('sport', 'cycling');
+  const profileDigest = profile.profileDigest;
+  assert.throws(
+    () => {
+      profile.policies.speedPolicy.maximumMontageRate = 99;
+    },
+    TypeError,
+  );
+  assert.equal(profile.policies.speedPolicy.maximumMontageRate, 12);
+  assert.equal(profile.profileDigest, profileDigest);
+
+  const resolved = resolvePolicies({
+    sport: 'cycling',
+    device: 'dji-osmo-action-5-pro',
+    delivery: 'landscape-1080p',
+  });
+  const policyDigest = resolved.policyDigest;
+  assert.throws(
+    () => {
+      resolved.policies.dataPolicy.gps.required = true;
+    },
+    TypeError,
+  );
+  assert.equal(resolved.policies.dataPolicy.gps.required, false);
+  assert.equal(resolved.policyDigest, policyDigest);
+});
