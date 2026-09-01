@@ -2,13 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hyperframes.local/schemas/direction-proposals.schema.json",
   "type": "object",
-  "required": ["$schema", "schemaVersion", "revision", "status", "candidates", "integrity"],
+  "required": ["$schema", "schemaVersion", "revision", "status", "candidates", "bindings", "integrity"],
   "properties": {
     "$schema": { "const": "https://hyperframes.local/schemas/direction-proposals.schema.json" },
     "schemaVersion": { "const": "1.0.0" },
     "revision": { "type": "integer", "minimum": 1 },
     "status": { "enum": ["unavailable", "proposed"] },
     "candidates": { "type": "array", "items": { "$ref": "#/$defs/candidate" } },
+    "bindings": { "$ref": "#/$defs/bindings" },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
   "allOf": [
@@ -19,18 +20,46 @@
   "$defs": {
     "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "candidate": { "type": "object", "required": ["candidateId", "wholeDirection", "representativeEvidenceIds", "designRevision", "lookRevision", "typographyHierarchy", "layoutProofs", "motionStoryboard", "assetPlan", "musicPlan", "risks", "previewArtifactDigests"], "additionalProperties": false, "properties": {
-      "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" }, "wholeDirection": { "const": true },
-      "representativeEvidenceIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-      "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" }, "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
-      "typographyHierarchy": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-      "layoutProofs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
-      "motionStoryboard": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
-      "assetPlan": { "type": "object", "required": ["roles", "productionImageGenUsed"], "additionalProperties": false, "properties": { "roles": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "productionImageGenUsed": { "const": false } } },
-      "musicPlan": { "type": "object", "required": ["mode", "trackIds"], "additionalProperties": false, "properties": { "mode": { "enum": ["none", "provided", "select-local"] }, "trackIds": { "type": "array", "items": { "type": "string", "minLength": 1 } } } },
-      "risks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-      "previewArtifactDigests": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/digest" } }
-    } },
+    "nonEmptyStrings": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "bindings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["editBriefDigest", "evidenceDigest", "roughCutDigest", "timelineDigest", "musicPlanDigest", "assetPlanDigest"],
+      "properties": {
+        "editBriefDigest": { "$ref": "#/$defs/digest" }, "evidenceDigest": { "$ref": "#/$defs/digest" },
+        "roughCutDigest": { "$ref": "#/$defs/digest" }, "timelineDigest": { "$ref": "#/$defs/digest" },
+        "musicPlanDigest": { "$ref": "#/$defs/digest" }, "assetPlanDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "candidateOwned": {
+      "type": "object", "required": ["candidateId"],
+      "properties": { "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" } }
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["candidateId", "title", "thesis", "wholeDirection", "representativeEvidenceIds", "copy", "viewport", "informationDensityBudget", "prototypeKind", "designRevision", "designCandidate", "lookRevision", "lookCandidate", "typographyHierarchy", "storyStructure", "visualWorldPlan", "componentPlan", "layoutProofs", "motionStoryboard", "assetPlan", "musicPlan", "risks", "previewArtifactDigests"],
+      "additionalProperties": false,
+      "properties": {
+        "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" },
+        "title": { "type": "string", "minLength": 1 }, "thesis": { "type": "string", "minLength": 1 }, "wholeDirection": { "const": true },
+        "representativeEvidenceIds": { "$ref": "#/$defs/nonEmptyStrings" }, "copy": { "$ref": "#/$defs/nonEmptyStrings" },
+        "viewport": { "type": "object", "required": ["width", "height", "aspectRatio"], "additionalProperties": false, "properties": { "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 }, "aspectRatio": { "const": "16:9" } } },
+        "informationDensityBudget": { "type": "object", "required": ["maximumSimultaneousLayers", "maximumWordsPerFrame"], "additionalProperties": false, "properties": { "maximumSimultaneousLayers": { "type": "integer", "minimum": 1 }, "maximumWordsPerFrame": { "type": "integer", "minimum": 1 } } },
+        "prototypeKind": { "const": "code-rendered" },
+        "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" },
+        "designCandidate": { "type": "object", "allOf": [{ "$ref": "#/$defs/candidateOwned" }], "required": ["candidateId", "tokenNamespace", "semanticColors", "typography"], "additionalProperties": false, "properties": { "candidateId": true, "tokenNamespace": { "type": "string", "minLength": 1 }, "semanticColors": { "type": "object", "minProperties": 4, "additionalProperties": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" } }, "typography": { "type": "object", "minProperties": 3, "additionalProperties": { "type": "string", "minLength": 1 } } } },
+        "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
+        "lookCandidate": { "type": "object", "allOf": [{ "$ref": "#/$defs/candidateOwned" }], "required": ["candidateId", "treatment", "grain"], "additionalProperties": false, "properties": { "candidateId": true, "treatment": { "type": "string", "minLength": 1 }, "grain": { "type": "string", "minLength": 1 } } },
+        "typographyHierarchy": { "$ref": "#/$defs/nonEmptyStrings" }, "storyStructure": { "$ref": "#/$defs/nonEmptyStrings" },
+        "visualWorldPlan": { "type": "object", "required": ["statement", "plannedAssets"], "additionalProperties": false, "properties": { "statement": { "type": "string", "minLength": 1 }, "plannedAssets": { "$ref": "#/$defs/nonEmptyStrings" } } },
+        "componentPlan": { "type": "object", "required": ["components", "heroAssets"], "additionalProperties": false, "properties": { "components": { "$ref": "#/$defs/nonEmptyStrings" }, "heroAssets": { "$ref": "#/$defs/nonEmptyStrings" } } },
+        "layoutProofs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
+        "motionStoryboard": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } },
+        "assetPlan": { "type": "object", "required": ["roles", "productionImageGenUsed"], "additionalProperties": false, "properties": { "roles": { "$ref": "#/$defs/nonEmptyStrings" }, "productionImageGenUsed": { "const": false } } },
+        "musicPlan": { "type": "object", "required": ["mode", "trackIds"], "additionalProperties": false, "properties": { "mode": { "enum": ["none", "provided", "select-local"] }, "trackIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } } },
+        "risks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "previewArtifactDigests": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/digest" } }
+      }
+    },
     "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
   }
 }

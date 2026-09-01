@@ -1,0 +1,82 @@
+@font-face { font-family: "HF Ledger"; src: local("Courier New"); font-display: swap; }
+@font-face { font-family: "HF Editorial"; src: local("Georgia"); font-display: swap; }
+* { box-sizing: border-box; }
+html { min-width: 1080px; background: var(--hf-background); color: var(--hf-text-primary); }
+body { margin: 0; min-height: 100vh; background: var(--hf-background); color: var(--hf-text-primary); font-family: "HF Ledger", monospace; }
+button, input { font: inherit; }
+.workbench-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(760px, 1fr) 340px; }
+.director-deck { min-width: 0; border-right: 1px solid var(--hf-line); }
+.production-rail { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 24px; background: var(--hf-surface); }
+.topline { height: 68px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--hf-line); letter-spacing: .08em; }
+.wordmark { display: flex; align-items: center; gap: 14px; font-size: 11px; text-transform: uppercase; }
+.wordmark-mark { width: 28px; height: 12px; border-block: 2px solid var(--hf-accent); position: relative; }
+.wordmark-mark::after { content: ""; position: absolute; inset: 4px 5px; background: var(--hf-accent); }
+.gate-stamp { color: var(--hf-text-secondary); font-size: 10px; text-transform: uppercase; }
+.gate-stamp strong { color: var(--hf-accent); font-weight: 500; }
+.direction-stage { display: none; padding: 30px 32px 24px; }
+.direction-stage.is-active { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 24px; }
+.stage-heading { grid-column: 1 / -1; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.eyebrow, .section-label { color: var(--hf-accent); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; }
+.stage-heading h1 { margin: 5px 0 0; font: 400 clamp(38px, 4.2vw, 74px)/.88 "HF Editorial", serif; letter-spacing: -.045em; }
+.stage-thesis { max-width: 520px; color: var(--hf-text-secondary); font: italic 15px/1.55 "HF Editorial", serif; }
+.direction-canvas { --candidate-canvas: #08090A; --candidate-ink: #F4F0E6; --candidate-accent: #D6A65B; --candidate-signal: #D7D1C3; position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--candidate-canvas); color: var(--candidate-ink); border: 1px solid var(--hf-line); box-shadow: 0 30px 80px var(--hf-background); isolation: isolate; }
+.direction-canvas::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 9.8%, rgba(255,255,255,.025) 10%); opacity: .5; }
+.candidate-frame { position: absolute; inset: 8% 7%; border: 1px solid color-mix(in srgb, var(--candidate-ink) 22%, transparent); }
+.candidate-index { position: absolute; top: 7%; left: 5%; color: var(--candidate-accent); font: 11px/1 "HF Ledger", monospace; letter-spacing: .18em; }
+.candidate-title { position: absolute; left: 8%; bottom: 15%; max-width: 72%; font: 400 clamp(30px, 4.8vw, 78px)/.86 "HF Editorial", serif; letter-spacing: -.055em; text-transform: uppercase; }
+.candidate-timecode { position: absolute; right: 5%; bottom: 6%; color: var(--candidate-signal); font: 10px/1 "HF Ledger", monospace; }
+.candidate-rule { position: absolute; top: 18%; right: 9%; width: 16%; height: 2px; background: var(--candidate-accent); transform-origin: right; transform: rotate(-18deg); }
+.canvas-meta { margin-top: 12px; display: flex; justify-content: space-between; color: var(--hf-text-secondary); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.stage-ledger { border-top: 1px solid var(--hf-line); }
+.ledger-row { padding: 14px 0; border-bottom: 1px solid var(--hf-line); }
+.ledger-row dt { color: var(--hf-text-secondary); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+.ledger-row dd { margin: 7px 0 0; color: var(--hf-text-primary); font-size: 12px; line-height: 1.45; }
+.candidate-filmstrip { display: grid; grid-template-columns: repeat(var(--candidate-count), minmax(0, 1fr)); gap: 1px; padding: 1px; background: var(--hf-line); border-block: 1px solid var(--hf-line); }
+.candidate-tab { appearance: none; min-height: 92px; padding: 16px 20px; border: 0; text-align: left; cursor: pointer; background: var(--hf-surface); color: var(--hf-text-primary); transition: background-color 160ms ease; }
+.candidate-tab:hover, .candidate-tab[aria-selected="true"] { background: var(--hf-surface-raised); }
+.candidate-tab[aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--hf-accent); }
+.candidate-tab span { display: block; color: var(--hf-text-secondary); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; }
+.candidate-tab strong { display: block; margin-top: 9px; font: 400 20px/1 "HF Editorial", serif; }
+.evidence-room { padding: 30px 32px 56px; }
+.evidence-room-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 17px; }
+.evidence-room h2, .production-rail h2 { margin: 0; font: 400 24px/1 "HF Editorial", serif; }
+.keyframe-track { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 10px; }
+.keyframe { margin: 0; min-width: 0; background: var(--hf-surface); border: 1px solid var(--hf-line); }
+.keyframe img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--hf-surface-raised); }
+.keyframe figcaption { display: flex; justify-content: space-between; padding: 8px 10px; color: var(--hf-text-secondary); font-size: 9px; }
+.edit-timeline { position: relative; margin: 34px 0 0; padding-top: 18px; border-top: 1px solid var(--hf-line); }
+.timeline-ruler { display: grid; grid-template-columns: repeat(6, 1fr); color: var(--hf-text-secondary); font-size: 8px; }
+.timeline-track { display: flex; height: 52px; margin-top: 8px; gap: 2px; }
+.timeline-clip { min-width: 42px; padding: 8px; overflow: hidden; background: var(--hf-surface-raised); border-left: 2px solid var(--hf-accent); font-size: 9px; }
+.shot-strip { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; color: var(--hf-text-secondary); font-size: 9px; }
+.shot-strip span { display: inline-flex; gap: 8px; }
+.shot-strip strong { color: var(--hf-text-primary); font-weight: 400; }
+.story-columns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 34px; }
+.story-column { padding-top: 14px; border-top: 1px solid var(--hf-line); }
+.story-column h3 { margin: 8px 0; font: 400 18px/1 "HF Editorial", serif; text-transform: uppercase; }
+.story-column p, .rail-copy, .risk-list { color: var(--hf-text-secondary); font-size: 11px; line-height: 1.6; }
+.rough-cut-link { display: inline-flex; align-items: center; gap: 12px; margin-top: 26px; padding: 12px 16px; color: var(--hf-text-primary); border: 1px solid var(--hf-line); text-decoration: none; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.rough-cut-link::before { content: "▶"; color: var(--hf-accent); }
+.rail-kicker { display: flex; justify-content: space-between; color: var(--hf-text-secondary); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.progress-list { margin: 26px 0 34px; padding: 0; list-style: none; }
+.progress-list li { position: relative; padding: 0 0 18px 24px; color: var(--hf-text-secondary); font-size: 9px; text-transform: uppercase; }
+.progress-list li::before { content: ""; position: absolute; left: 2px; top: 1px; width: 7px; height: 7px; border: 1px solid var(--hf-line); background: var(--hf-background); }
+.progress-list li::after { content: ""; position: absolute; left: 5px; top: 9px; width: 1px; height: calc(100% - 7px); background: var(--hf-line); }
+.progress-list li:last-child::after { display: none; }
+.progress-list .is-complete::before { background: var(--hf-accent); border-color: var(--hf-accent); }
+.progress-list .is-current { color: var(--hf-text-primary); }
+.rail-section { padding: 20px 0; border-top: 1px solid var(--hf-line); }
+.rail-section h3 { margin: 0 0 12px; color: var(--hf-accent); font-size: 9px; letter-spacing: .15em; text-transform: uppercase; }
+.rail-list { margin: 0; padding-left: 16px; color: var(--hf-text-secondary); font-size: 10px; line-height: 1.7; }
+.approval-zone { padding: 22px 0 8px; border-top: 1px solid var(--hf-line); }
+.approval-zone p { color: var(--hf-text-secondary); font: italic 13px/1.5 "HF Editorial", serif; }
+.approve-button { width: 100%; padding: 15px; border: 1px solid var(--hf-accent); background: var(--hf-accent); color: var(--hf-background); cursor: pointer; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.approve-button:disabled { cursor: not-allowed; opacity: .45; }
+.approval-result { min-height: 16px; margin-top: 10px; color: var(--hf-danger); font-size: 9px; }
+@media (min-width: 2200px) {
+  .workbench-shell { grid-template-columns: minmax(1300px, 1fr) 460px; }
+  .production-rail { padding: 42px; }
+  .direction-stage { padding: 54px 60px 34px; grid-template-columns: minmax(0, 1fr) 380px; gap: 38px; }
+  .evidence-room { padding: 46px 60px 90px; }
+  .keyframe-track { grid-auto-columns: minmax(290px, 1fr); }
+}

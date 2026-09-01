@@ -42,13 +42,29 @@ function assertInvalid(schema, value, message) {
 }
 
 function directionCandidate(candidateId) {
+  const suffix = candidateId.replace('candidate-', '');
   return {
     candidateId,
+    title: `Direction ${suffix.toUpperCase()}`,
+    thesis: 'One complete, restrained editorial direction.',
     wholeDirection: true,
-    representativeEvidenceIds: ['shot-001'],
+    representativeEvidenceIds: ['frame-001'],
+    copy: ['THE LONG CLIMB'],
+    viewport: { width: 1920, height: 1080, aspectRatio: '16:9' },
+    informationDensityBudget: { maximumSimultaneousLayers: 3, maximumWordsPerFrame: 12 },
+    prototypeKind: 'code-rendered',
     designRevision: `design-${candidateId}`,
+    designCandidate: {
+      candidateId, tokenNamespace: `direction-${suffix}`,
+      semanticColors: { canvas: '#08090A', ink: '#F4F0E6', accent: '#D6A65B', signal: '#D7D1C3' },
+      typography: { journeyTitle: 'editorial-display', chapterTitle: 'condensed-grotesk', annotation: 'mono-ledger' },
+    },
     lookRevision: `look-${candidateId}`,
+    lookCandidate: { candidateId, treatment: 'mineral-cool', grain: 'restrained' },
     typographyHierarchy: ['journey-title'],
+    storyStructure: ['departure', 'effort', 'release'],
+    visualWorldPlan: { statement: 'Mineral darks and restrained editorial type.', plannedAssets: ['chapter-slate'] },
+    componentPlan: { components: ['chapter-index'], heroAssets: ['summit-silhouette'] },
     layoutProofs: ['review/layout-proof.webp'],
     motionStoryboard: ['review/motion-storyboard.webp'],
     assetPlan: { roles: ['journey-anchor'], productionImageGenUsed: false },
@@ -365,6 +381,7 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
     editBrief: 'a'.repeat(64), roughCut: 'b'.repeat(64), musicPlan: 'c'.repeat(64),
     assetPlan: 'd'.repeat(64), evidence: 'e'.repeat(64), proposals: 'f'.repeat(64),
   };
+  approval.workbenchDigest = '1'.repeat(64);
   approval.approvedAt = '2026-09-01T10:15:30.000Z';
   assertValid(schemas['director-approval'], approval, 'approval binds one candidate and displayed artifact digests');
   const partialApproval = clone(approval);

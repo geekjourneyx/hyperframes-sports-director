@@ -5,6 +5,7 @@
   "status": "unavailable",
   "selectedCandidateId": null,
   "displayedArtifactDigests": {},
+  "workbenchDigest": null,
   "approvedAt": null,
   "integrity": { "digest": null, "upstream": {} }
 }

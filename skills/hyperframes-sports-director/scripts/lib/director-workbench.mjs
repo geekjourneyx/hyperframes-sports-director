@@ -1,0 +1,435 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { basename, dirname, extname, join } from 'node:path';
+import { chmod, mkdir, open, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
+
+import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
+import { loadDirectionSources, validateDirectionProposals } from './direction-proposals.mjs';
+import { projectPath, sha256File } from './media.mjs';
+
+const ASSET_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'director-workbench');
+const TEMPLATE = await readFile(join(ASSET_ROOT, 'index.template.html'), 'utf8');
+const WORKBENCH_CSS = await readFile(join(ASSET_ROOT, 'workbench.css'), 'utf8');
+const WORKBENCH_JS = await readFile(join(ASSET_ROOT, 'workbench.js'), 'utf8');
+const CHROME = Object.freeze({
+  background: '#050505', surface: '#0D0D0D', surfaceRaised: '#141414', textPrimary: '#F5F2EA',
+  textSecondary: '#A8A29A', accent: '#C9A86A', danger: '#E36B5D', line: '#2A2A2A',
+});
+const STAGES = ['INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT', 'DIRECTOR_REVIEW_READY'];
+const MIME = new Map([
+  ['.html', 'text/html; charset=utf-8'], ['.css', 'text/css; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'],
+  ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.png', 'image/png'], ['.webp', 'image/webp'], ['.svg', 'image/svg+xml'],
+  ['.mp4', 'video/mp4'], ['.webm', 'video/webm'],
+]);
+
+export class DirectorWorkbenchError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.name = 'DirectorWorkbenchError';
+    this.code = code;
+    Object.assign(this, details);
+  }
+}
+
+function sha(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[character]));
+}
+
+function reviewUrl(path) {
+  if (typeof path !== 'string' || !path.startsWith('review/workbench-assets/')) {
+    throw new DirectorWorkbenchError('E_REVIEW_REFERENCE', 'workbench media must be a review derivative');
+  }
+  return `workbench-assets/${encodeURIComponent(basename(path))}`;
+}
+
+function compactTime(seconds) {
+  const whole = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+function candidateStyle(candidate) {
+  const colors = candidate.designCandidate.semanticColors;
+  return [
+    `--candidate-canvas:${colors.canvas}`, `--candidate-ink:${colors.ink}`,
+    `--candidate-accent:${colors.accent}`, `--candidate-signal:${colors.signal}`,
+  ].join(';');
+}
+
+function list(items) {
+  return items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+}
+
+function renderStage(candidate, index) {
+  const active = index === 0 ? ' is-active' : '';
+  return `<section class="direction-stage${active}" data-candidate-stage="${escapeHtml(candidate.candidateId)}">
+  <header class="stage-heading">
+    <div><span class="eyebrow">Direction ${String(index + 1).padStart(2, '0')} · Whole proposal</span><h1>${escapeHtml(candidate.title)}</h1></div>
+    <p class="stage-thesis">${escapeHtml(candidate.thesis)}</p>
+  </header>
+  <div>
+    <div class="direction-canvas" style="${candidateStyle(candidate)}">
+      <div class="candidate-frame"></div><span class="candidate-index">HF / ${escapeHtml(candidate.candidateId.toUpperCase())}</span>
+      <span class="candidate-rule"></span><strong class="candidate-title">${escapeHtml(candidate.copy[0])}</strong>
+      <span class="candidate-timecode">${escapeHtml(candidate.copy[1] ?? 'DIRECTION PROTOTYPE')}</span>
+    </div>
+    <div class="canvas-meta"><span>${candidate.viewport.width} × ${candidate.viewport.height}</span><span>${candidate.informationDensityBudget.maximumSimultaneousLayers} layers / ${candidate.informationDensityBudget.maximumWordsPerFrame} words</span><span>Code-rendered prototype</span></div>
+  </div>
+  <dl class="stage-ledger">
+    <div class="ledger-row"><dt>Visual world</dt><dd>${escapeHtml(candidate.visualWorldPlan.statement)}</dd></div>
+    <div class="ledger-row"><dt>Look</dt><dd>${escapeHtml(candidate.lookCandidate.treatment)} · ${escapeHtml(candidate.lookCandidate.grain)} grain</dd></div>
+    <div class="ledger-row"><dt>Typography</dt><dd>${escapeHtml(candidate.typographyHierarchy.join(' / '))}</dd></div>
+    <div class="ledger-row"><dt>Evidence parity</dt><dd>${escapeHtml(candidate.representativeEvidenceIds.join(' · '))}</dd></div>
+  </dl>
+</section>`;
+}
+
+function renderCandidateTab(candidate, index) {
+  return `<button class="candidate-tab" type="button" data-candidate-tab="${escapeHtml(candidate.candidateId)}" aria-selected="${index === 0}"><span>Direction ${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(candidate.title)}</strong></button>`;
+}
+
+function renderKeyframe(frame, index) {
+  return `<figure class="keyframe"><img src="${reviewUrl(frame.path)}" alt="Review-safe key frame ${index + 1}"><figcaption><span>${escapeHtml(frame.frameId)}</span><span>${compactTime(frame.sourceTimeSeconds)}</span></figcaption></figure>`;
+}
+
+function renderTimelineItem(item, total) {
+  const duration = Math.max(0.01, item.destinationOutSeconds - item.destinationInSeconds);
+  const basis = Math.max(8, (duration / total) * 100);
+  return `<div class="timeline-clip" style="flex-basis:${basis.toFixed(3)}%"><strong>${escapeHtml(item.itemId)}</strong><br>${compactTime(item.destinationInSeconds)}–${compactTime(item.destinationOutSeconds)}</div>`;
+}
+
+function tokenStyle() {
+  return Object.entries(CHROME).map(([key, value]) => `--hf-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}:${value}`).join(';');
+}
+
+function renderContent(model) {
+  const active = model.proposals.candidates[0];
+  const total = Math.max(...model.timeline.items.map(({ destinationOutSeconds }) => destinationOutSeconds), 1);
+  const stageIndex = STAGES.indexOf(model.state.state);
+  const components = [...new Set(active.componentPlan.components)];
+  const heroes = [...new Set(active.componentPlan.heroAssets)];
+  const allRisks = [...new Set(model.proposals.candidates.flatMap(({ risks }) => risks))];
+  return `<main class="workbench-shell">
+  <div class="director-deck">
+    <header class="topline"><div class="wordmark"><span class="wordmark-mark"></span><span>HyperFrames / Director Workbench</span></div><span class="gate-stamp">Gate <strong>DIRECTOR REVIEW</strong> · One approval</span></header>
+    ${model.proposals.candidates.map(renderStage).join('\n')}
+    <nav class="candidate-filmstrip" style="--candidate-count:${model.proposals.candidates.length}" aria-label="Whole direction candidates">${model.proposals.candidates.map(renderCandidateTab).join('')}</nav>
+    <section class="evidence-room">
+      <header class="evidence-room-header"><div><span class="section-label">Evidence rail 01</span><h2>KEY FRAMES</h2></div><span class="gate-stamp">Same evidence · same copy · same density</span></header>
+      <div class="keyframe-track">${model.keyFrames.map(renderKeyframe).join('')}</div>
+      <div class="edit-timeline"><span class="section-label">SHOT LEDGER / ROUGH CUT</span><div class="timeline-ruler"><span>00:00</span><span>01</span><span>02</span><span>03</span><span>04</span><span>${compactTime(total)}</span></div><div class="timeline-track">${model.timeline.items.map((item) => renderTimelineItem(item, total)).join('')}</div><div class="shot-strip">${model.shots.map((shot) => `<span><strong>${escapeHtml(shot.shotId)}</strong>${escapeHtml(`${shot.cameraRole.toUpperCase()} / ${shot.actionRole.toUpperCase()}`)} · ${Math.round(shot.confidence * 100)}%</span>`).join('')}</div></div>
+      <a class="rough-cut-link" href="workbench-assets/rough-cut.mp4">Open proxy rough cut</a>
+      <div class="story-columns">${active.storyStructure.map((chapter, index) => `<article class="story-column"><span class="section-label">0${index + 1}</span><h3>${escapeHtml(chapter)}</h3><p>${escapeHtml(model.brief.story.emphasis[index] ?? 'Editorial beat held by current shot evidence.')}</p></article>`).join('')}</div>
+    </section>
+  </div>
+  <aside class="production-rail">
+    <div class="rail-kicker"><span>DIRECTOR REVIEW</span><span>Rev ${model.proposals.revision}</span></div>
+    <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}</ol>
+    <section class="rail-section"><h3>BRIEF</h3><h2>${escapeHtml(model.brief.copy.title ?? 'Untitled journey')}</h2><p class="rail-copy">${escapeHtml(model.brief.story.tone ?? 'observational')} · ${model.brief.duration.targetSeconds}s · ${escapeHtml(model.brief.story.pacing)}</p></section>
+    <section class="rail-section"><h3>STORY ARC</h3><ul class="rail-list">${list(active.storyStructure)}</ul></section>
+    <section class="rail-section"><h3>LOCAL MUSIC</h3><p class="rail-copy">${escapeHtml(active.musicPlan.mode)} · ${escapeHtml(active.musicPlan.trackIds.join(', ') || 'No track')}</p></section>
+    <section class="rail-section"><h3>VISUAL WORLD</h3><p class="rail-copy">${escapeHtml(active.visualWorldPlan.statement)}</p><ul class="rail-list">${list(active.visualWorldPlan.plannedAssets)}</ul></section>
+    <section class="rail-section"><h3>COMPONENT / HERO PLAN</h3><p class="rail-copy">Components</p><ul class="rail-list">${list(components)}</ul><p class="rail-copy">Hero</p><ul class="rail-list">${list(heroes)}</ul></section>
+    <section class="rail-section"><h3>LAYOUT PROOF</h3><ul class="rail-list">${list(active.layoutProofs.map((path) => basename(path)))}</ul></section>
+    <section class="rail-section"><h3>MOTION STORYBOARD</h3><ul class="rail-list">${list(active.motionStoryboard.map((path) => basename(path)))}</ul></section>
+    <section class="rail-section"><h3>RISKS</h3><ul class="rail-list risk-list">${list(allRisks)}</ul></section>
+    ${model.approvalAvailable ? `<section class="approval-zone"><span class="section-label">SINGLE APPROVAL GATE</span><p>Choose one complete direction. This records evidence only; design and Look lock remain a separate transaction.</p><button class="approve-button" type="button" data-approve>APPROVE THIS DIRECTION</button><div class="approval-result" data-approval-result aria-live="polite"></div></section>` : ''}
+    <script type="application/json" data-displayed-digests>${JSON.stringify(model.displayedArtifactDigests).replaceAll('<', '\\u003c')}</script>
+  </aside>
+</main>`;
+}
+
+function assertProposalBindings(proposals, sources) {
+  const evidenceDigest = computeArtifactDigest({
+    mediaIndex: sources.mediaIndex.integrity.digest, probe: sources.probe.integrity.digest,
+    segments: sources.segments.integrity.digest, shots: sources.shots.integrity.digest,
+    dataOverlays: sources.dataOverlays.integrity.digest,
+  });
+  const expected = {
+    editBriefDigest: sources.editBrief.integrity.digest,
+    evidenceDigest,
+    roughCutDigest: sources.roughCut.outputDigest,
+    timelineDigest: sources.timeline.integrity.digest,
+    musicPlanDigest: computeArtifactDigest(sources.timeline.music),
+    assetPlanDigest: computeArtifactDigest(proposals.candidates.map(({ candidateId, visualWorldPlan, componentPlan, assetPlan }) => ({ candidateId, visualWorldPlan, componentPlan, assetPlan }))),
+  };
+  for (const [role, digest] of Object.entries(expected)) {
+    if (proposals.bindings?.[role] !== digest) throw new DirectorWorkbenchError('E_SOURCE_STALE', `stale direction proposal binding: ${role}`);
+  }
+  return expected;
+}
+
+async function readApproval(projectRoot) {
+  try {
+    const value = JSON.parse(await readFile(projectPath(projectRoot, 'direction/DIRECTOR_APPROVAL.json'), 'utf8'));
+    const schemaValidation = validateDocument(await loadSchema('director-approval'), value);
+    if (!schemaValidation.valid || !verifyArtifactIntegrity(value).valid) {
+      throw new DirectorWorkbenchError('E_APPROVAL_INVALID', 'an existing approval artifact is invalid and cannot be overwritten');
+    }
+    return value;
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    if (error instanceof DirectorWorkbenchError) throw error;
+    throw new DirectorWorkbenchError('E_APPROVAL_INVALID', 'an existing approval artifact is unreadable and cannot be overwritten');
+  }
+}
+
+export async function buildWorkbenchModel(projectRoot, options = {}) {
+  const sources = await loadDirectionSources(projectRoot);
+  const proposals = JSON.parse(await readFile(projectPath(projectRoot, 'direction/DIRECTION_PROPOSALS.json'), 'utf8'));
+  const validation = validateDirectionProposals(proposals);
+  const schemaValidation = validateDocument(await loadSchema('direction-proposals'), proposals);
+  if (!validation.valid || !schemaValidation.valid) throw new DirectorWorkbenchError('E_PROPOSALS_INVALID', 'workbench requires current validated direction proposals');
+  const bindings = assertProposalBindings(proposals, sources);
+  const frames = sources.segments.segments
+    .flatMap((segment) => segment.evidenceFrames.map((frame) => ({
+      segmentId: segment.segmentId, sourceTimeSeconds: frame.sourceTimeSeconds, path: frame.path,
+    })))
+    .sort((left, right) => left.segmentId.localeCompare(right.segmentId) || left.sourceTimeSeconds - right.sourceTimeSeconds)
+    .map((frame, index) => ({ ...frame, frameId: `frame-${String(index + 1).padStart(3, '0')}` }));
+  const approval = await readApproval(projectRoot);
+  return {
+    chrome: CHROME,
+    state: sources.projectState,
+    brief: {
+      revision: sources.editBrief.revision, sport: sources.editBrief.sport, story: sources.editBrief.story,
+      duration: sources.editBrief.duration, music: sources.editBrief.music, copy: sources.editBrief.copy,
+    },
+    keyFrames: frames,
+    shots: [...sources.shots.shots].sort((left, right) => left.shotId.localeCompare(right.shotId)).map((shot) => ({
+      shotId: shot.shotId, actionRole: shot.actionRole, cameraRole: shot.cameraRole, confidence: shot.confidence,
+    })),
+    timeline: { revision: sources.timeline.revision, items: [...sources.timeline.items].sort((left, right) => left.destinationInSeconds - right.destinationInSeconds) },
+    roughCut: { path: 'review/workbench-assets/rough-cut.mp4', digest: sources.roughCut.outputDigest, closedFileProbe: sources.roughCut.closedFileProbe },
+    proposals,
+    displayedArtifactDigests: {
+      editBrief: bindings.editBriefDigest, roughCut: bindings.roughCutDigest, musicPlan: bindings.musicPlanDigest,
+      assetPlan: bindings.assetPlanDigest, evidence: bindings.evidenceDigest, proposals: proposals.integrity.digest,
+    },
+    approvalAvailable: sources.projectState.state === 'DIRECTOR_REVIEW_READY' && approval?.status !== 'approved',
+  };
+}
+
+export function renderWorkbenchHtml(model) {
+  const modelDigest = computeArtifactDigest({
+    state: model.state.integrity.digest, displayed: model.displayedArtifactDigests, approvalAvailable: model.approvalAvailable,
+  });
+  return TEMPLATE
+    .replace('{{TOKENS}}', tokenStyle())
+    .replace('{{MODEL_DIGEST}}', modelDigest)
+    .replace('{{CONTENT}}', renderContent(model));
+}
+
+async function writeAtomic(path, bytes, mode = 0o600, beforeRename) {
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', mode);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    if (beforeRename) await beforeRename(temporary, path);
+    await rename(temporary, path);
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
+}
+
+export async function buildDirectorWorkbench(projectRoot) {
+  const model = await buildWorkbenchModel(projectRoot);
+  const html = renderWorkbenchHtml(model);
+  const reviewRoot = projectPath(projectRoot, 'review');
+  await Promise.all([
+    writeAtomic(join(reviewRoot, 'workbench-assets/workbench.css'), WORKBENCH_CSS),
+    writeAtomic(join(reviewRoot, 'workbench-assets/workbench.js'), WORKBENCH_JS),
+    writeAtomic(join(reviewRoot, 'workbench-assets/rough-cut.mp4'), await readFile(projectPath(projectRoot, 'renders/rough-cut.mp4'))),
+  ]);
+  const output = join(reviewRoot, 'director-workbench.html');
+  await writeAtomic(output, html);
+  return { ok: true, path: 'review/director-workbench.html', digest: sha(html), displayedArtifactDigests: model.displayedArtifactDigests };
+}
+
+function sameSecret(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') return false;
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function exactDigestSet(actual, expected) {
+  const actualKeys = Object.keys(actual ?? {}).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return actualKeys.length === expectedKeys.length && actualKeys.every((key, index) => key === expectedKeys[index] && actual[key] === expected[key]);
+}
+
+export async function recordDirectorApproval(request = {}) {
+  const { projectRoot } = request;
+  if (!projectRoot || !/^session-[0-9a-z-]{12,80}$/.test(request.sessionId ?? '') || typeof request.csrfToken !== 'string') {
+    throw new DirectorWorkbenchError('E_SESSION_REQUIRED', 'exact session and CSRF tokens are required');
+  }
+  let session;
+  try {
+    session = JSON.parse(await readFile(projectPath(projectRoot, `cache/director-workbench-sessions/${request.sessionId}/session.json`), 'utf8'));
+  } catch {
+    throw new DirectorWorkbenchError('E_SESSION_REQUIRED', 'exact session and CSRF tokens are required');
+  }
+  if (!sameSecret(request.sessionId, session.id) || !sameSecret(sha(request.csrfToken), session.csrfDigest)) {
+    throw new DirectorWorkbenchError('E_SESSION_REQUIRED', 'exact session and CSRF tokens are required');
+  }
+  const now = Date.parse((request.now ?? (() => new Date().toISOString()))());
+  if (!Number.isFinite(now) || now >= Date.parse(session.expiresAt)) throw new DirectorWorkbenchError('E_SESSION_EXPIRED', 'director session expired');
+  const state = JSON.parse(await readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8'));
+  if (state.state !== 'DIRECTOR_REVIEW_READY') throw new DirectorWorkbenchError('E_APPROVAL_STATE', 'approval is available only in DIRECTOR_REVIEW_READY');
+  const existing = await readApproval(projectRoot);
+  if (existing?.status === 'approved') throw new DirectorWorkbenchError('E_APPROVAL_EXISTS', 'the one normal-path approval already exists');
+  const model = await buildWorkbenchModel(projectRoot);
+  if (!model.proposals.candidates.some(({ candidateId }) => candidateId === request.selectedCandidateId)) {
+    throw new DirectorWorkbenchError('E_CANDIDATE_UNKNOWN', 'selected candidate does not belong to the current whole proposals');
+  }
+  if (!exactDigestSet(request.displayedArtifactDigests, model.displayedArtifactDigests)) {
+    throw new DirectorWorkbenchError('E_DISPLAYED_DIGEST_STALE', 'displayed artifact digest set is stale or partial');
+  }
+  const canonicalHtml = renderWorkbenchHtml(model);
+  const canonicalDigest = sha(canonicalHtml);
+  const path = projectPath(projectRoot, 'review/director-workbench.html');
+  let diskDigest;
+  try { diskDigest = await sha256File(path); } catch { diskDigest = null; }
+  if (request.workbenchDigest !== canonicalDigest || diskDigest !== canonicalDigest) {
+    throw new DirectorWorkbenchError('E_WORKBENCH_STALE', 'workbench digest does not match current canonical evidence view');
+  }
+  const approvedAt = new Date(now).toISOString();
+  const approval = {
+    $schema: 'https://hyperframes.local/schemas/director-approval.schema.json', schemaVersion: '1.0.0', revision: 1,
+    status: 'approved', selectedCandidateId: request.selectedCandidateId,
+    displayedArtifactDigests: { ...model.displayedArtifactDigests }, workbenchDigest: canonicalDigest, approvedAt,
+    integrity: {
+      digest: null,
+      upstream: { proposals: model.proposals.integrity.digest, workbench: canonicalDigest, ...model.displayedArtifactDigests },
+    },
+  };
+  approval.integrity.digest = computeArtifactDigest(approval);
+  const schemaValidation = validateDocument(await loadSchema('director-approval'), approval);
+  if (!schemaValidation.valid) throw new DirectorWorkbenchError('E_APPROVAL_SCHEMA', 'compiled approval violates its schema', { diagnostics: schemaValidation.errors });
+  await writeAtomic(projectPath(projectRoot, 'direction/DIRECTOR_APPROVAL.json'), `${JSON.stringify(approval, null, 2)}\n`, 0o600, request.beforeRename);
+  return { ok: true, approval };
+}
+
+async function readBody(request, maximumBytes = 64 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maximumBytes) throw new DirectorWorkbenchError('E_REQUEST_SIZE', 'request body is too large');
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+async function expireStaleSessions(parent, now) {
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  for (const entry of await readdir(parent, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^session-[0-9a-z-]{12,80}$/.test(entry.name)) continue;
+    const directory = join(parent, entry.name);
+    try {
+      const session = JSON.parse(await readFile(join(directory, 'session.json'), 'utf8'));
+      if (session.id === entry.name && Number.isFinite(Date.parse(session.expiresAt)) && Date.parse(session.expiresAt) <= now) {
+        await rm(directory, { recursive: true, force: true });
+      }
+    } catch {}
+  }
+}
+
+function send(response, statusCode, body, contentType = 'application/json; charset=utf-8') {
+  response.writeHead(statusCode, {
+    'content-type': contentType, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'self'; img-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+  });
+  response.end(body);
+}
+
+export async function startWorkbenchServer(options = {}) {
+  const host = options.host ?? '127.0.0.1';
+  if (!['127.0.0.1', 'localhost'].includes(host)) throw new DirectorWorkbenchError('E_BIND_LOCALHOST', 'director workbench binds only to localhost');
+  const projectRoot = options.projectRoot;
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const issuedAt = Number((options.now ?? Date.now)());
+  const ttlMs = options.ttlMs ?? 15 * 60_000;
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(ttlMs) || ttlMs <= 0) throw new DirectorWorkbenchError('E_SESSION_EXPIRY', 'valid session clock and positive expiry are required');
+  const session = {
+    id: `session-${randomBytes(16).toString('hex')}`,
+    csrfToken: `csrf-${randomBytes(24).toString('hex')}`,
+    expiresAt: new Date(issuedAt + ttlMs).toISOString(),
+  };
+  const sessionParent = projectPath(projectRoot, 'cache/director-workbench-sessions');
+  await expireStaleSessions(sessionParent, issuedAt);
+  const sessionDir = join(sessionParent, session.id);
+  await mkdir(sessionDir, { recursive: true, mode: 0o700 });
+  await chmod(sessionDir, 0o700);
+  await writeAtomic(join(sessionDir, 'session.json'), `${JSON.stringify({ id: session.id, csrfDigest: sha(session.csrfToken), expiresAt: session.expiresAt })}\n`, 0o600);
+
+  const allow = new Map();
+  allow.set('/workbench-assets/workbench.css', projectPath(projectRoot, 'review/workbench-assets/workbench.css'));
+  allow.set('/workbench-assets/workbench.js', projectPath(projectRoot, 'review/workbench-assets/workbench.js'));
+  allow.set('/workbench-assets/rough-cut.mp4', projectPath(projectRoot, 'review/workbench-assets/rough-cut.mp4'));
+  for (const path of model.keyFrames.map(({ path }) => path).concat(model.proposals.candidates.flatMap((candidate) => [...candidate.layoutProofs, ...candidate.motionStoryboard]))) {
+    allow.set(`/workbench-assets/${encodeURIComponent(basename(path))}`, projectPath(projectRoot, path));
+  }
+  const canonicalHtml = await readFile(projectPath(projectRoot, built.path), 'utf8');
+  const servedHtml = canonicalHtml
+    .replace('__HF_SESSION_ID__', session.id)
+    .replace('__HF_CSRF_TOKEN__', session.csrfToken)
+    .replace('__HF_WORKBENCH_DIGEST__', built.digest);
+
+  const server = createServer(async (request, response) => {
+    try {
+      const url = new URL(request.url, 'http://127.0.0.1');
+      if (request.method === 'GET' && ['/', '/director-workbench.html'].includes(url.pathname)) {
+        send(response, 200, servedHtml, MIME.get('.html'));
+        return;
+      }
+      if (request.method === 'GET' && allow.has(url.pathname)) {
+        const path = allow.get(url.pathname);
+        send(response, 200, await readFile(path), MIME.get(extname(path)) ?? 'application/octet-stream');
+        return;
+      }
+      if (request.method === 'POST' && url.pathname === '/approval') {
+        const payload = await readBody(request);
+        const result = await recordDirectorApproval({ ...payload, projectRoot, session });
+        send(response, 200, JSON.stringify({ ok: true, approvalDigest: result.approval.integrity.digest }));
+        return;
+      }
+      send(response, 404, JSON.stringify({ ok: false, code: 'E_NOT_FOUND' }));
+    } catch (error) {
+      send(response, 400, JSON.stringify({ ok: false, code: error.code ?? 'E_REQUEST', message: error.message }));
+    }
+  });
+  await new Promise((resolvePromise, reject) => {
+    server.once('error', reject);
+    server.listen(options.port ?? 0, '127.0.0.1', resolvePromise);
+  });
+  const address = server.address();
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(sessionDir, { recursive: true, force: true });
+  };
+  return {
+    url: `http://127.0.0.1:${address.port}/`, expiresAt: session.expiresAt,
+    sessionId: session.id, csrfToken: session.csrfToken, session, sessionDir, close,
+  };
+}
+
+export { CHROME };
