@@ -66,7 +66,11 @@ function list(items) {
   return items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
 }
 
-function renderStage(candidate, index) {
+function renderCandidateEvidenceRibbon(keyFrames) {
+  return `<div class="candidate-evidence-ribbon" style="--candidate-evidence-count:${keyFrames.length}" aria-label="Shared review-safe evidence">${keyFrames.map((frame) => `<img class="candidate-evidence-frame" src="${reviewUrl(frame.path)}" alt="Shared review frame ${escapeHtml(frame.frameId)}" data-candidate-evidence-id="${escapeHtml(frame.frameId)}">`).join('')}</div>`;
+}
+
+function renderStage(candidate, index, keyFrames) {
   const active = index === 0 ? ' is-active' : '';
   return `<section class="direction-stage${active}" data-candidate-stage="${escapeHtml(candidate.candidateId)}">
   <header class="stage-heading">
@@ -75,6 +79,7 @@ function renderStage(candidate, index) {
   </header>
   <div>
     <div class="direction-canvas" style="${candidateStyle(candidate)}">
+      ${renderCandidateEvidenceRibbon(keyFrames)}
       <div class="candidate-frame"></div><span class="candidate-index">HF / ${escapeHtml(candidate.candidateId.toUpperCase())}</span>
       <span class="candidate-rule"></span><strong class="candidate-title">${escapeHtml(candidate.copy[0])}</strong>
       <span class="candidate-timecode">${escapeHtml(candidate.copy[1] ?? 'DIRECTION PROTOTYPE')}</span>
@@ -94,10 +99,15 @@ function renderCandidateTab(candidate, index) {
   return `<button class="candidate-tab" type="button" data-candidate-tab="${escapeHtml(candidate.candidateId)}" aria-selected="${index === 0}"><span>Direction ${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(candidate.title)}</strong></button>`;
 }
 
+function renderCandidateProof(candidate, kind, path, proofIndex) {
+  return `<figure class="candidate-proof"><img class="candidate-proof-image" src="${reviewUrl(path)}" alt="${escapeHtml(candidate.title)} ${kind} proof ${proofIndex + 1}"><figcaption><span>${escapeHtml(kind.toUpperCase())} PROOF ${String(proofIndex + 1).padStart(2, '0')}</span><span>Review-safe derivative</span></figcaption></figure>`;
+}
+
 function renderCandidateStoryDetail(candidate, index, brief) {
   const active = index === 0 ? ' is-active' : '';
   return `<section class="candidate-detail candidate-story-detail${active}" data-candidate-detail="${escapeHtml(candidate.candidateId)}">
   <div class="story-columns">${candidate.storyStructure.map((chapter, chapterIndex) => `<article class="story-column"><span class="section-label">0${chapterIndex + 1}</span><h3>${escapeHtml(chapter)}</h3><p>${escapeHtml(brief.story.emphasis[chapterIndex] ?? 'Editorial beat held by current shot evidence.')}</p></article>`).join('')}</div>
+  <section class="candidate-proof-strip" aria-label="${escapeHtml(candidate.title)} direction proofs">${candidate.layoutProofs.map((path, proofIndex) => renderCandidateProof(candidate, 'layout', path, proofIndex)).join('')}${candidate.motionStoryboard.map((path, proofIndex) => renderCandidateProof(candidate, 'motion storyboard', path, proofIndex)).join('')}</section>
 </section>`;
 }
 
@@ -109,8 +119,6 @@ function renderCandidateRailDetail(candidate, index) {
     <section class="rail-section"><h3>STORY ARC</h3><ul class="rail-list">${list(candidate.storyStructure)}</ul></section>
     <section class="rail-section"><h3>VISUAL WORLD</h3><p class="rail-copy">${escapeHtml(candidate.visualWorldPlan.statement)}</p><ul class="rail-list">${list(candidate.visualWorldPlan.plannedAssets)}</ul></section>
     <section class="rail-section"><h3>COMPONENT / HERO PLAN</h3><p class="rail-copy">Components</p><ul class="rail-list">${list(components)}</ul><p class="rail-copy">Hero</p><ul class="rail-list">${list(heroes)}</ul></section>
-    <section class="rail-section"><h3>LAYOUT PROOF</h3><ul class="rail-list">${list(candidate.layoutProofs.map((path) => basename(path)))}</ul></section>
-    <section class="rail-section"><h3>MOTION STORYBOARD</h3><ul class="rail-list">${list(candidate.motionStoryboard.map((path) => basename(path)))}</ul></section>
     <section class="rail-section"><h3>RISKS</h3><ul class="rail-list risk-list">${list(candidate.risks)}</ul></section>
   </div>`;
 }
@@ -140,7 +148,7 @@ function renderContent(model) {
   return `<main class="workbench-shell">
   <div class="director-deck">
     <header class="topline"><div class="wordmark"><span class="wordmark-mark"></span><span>HyperFrames / Director Workbench</span></div><span class="gate-stamp">Gate <strong>DIRECTOR REVIEW</strong> · One approval</span></header>
-    ${model.proposals.candidates.map(renderStage).join('\n')}
+    ${model.proposals.candidates.map((candidate, index) => renderStage(candidate, index, model.keyFrames)).join('\n')}
     <nav class="candidate-filmstrip" style="--candidate-count:${model.proposals.candidates.length}" aria-label="Whole direction candidates">${model.proposals.candidates.map(renderCandidateTab).join('')}</nav>
     <section class="evidence-room">
       <header class="evidence-room-header"><div><span class="section-label">Evidence rail 01</span><h2>KEY FRAMES</h2></div><span class="gate-stamp">Same evidence · same copy · same density</span></header>

@@ -500,6 +500,23 @@ test('candidate selection reveals only the matching server-rendered detail and n
   assert.equal((html.match(/data-candidate-detail="candidate-b"/g) ?? []).length, 2);
   assert.match(html, /Same evidence · same copy · same density/);
   assert.match(html, /LOCAL MUSIC/);
+  for (const frame of model.keyFrames) {
+    assert.equal((html.match(new RegExp(`data-candidate-evidence-id="${frame.frameId}"`, 'g')) ?? []).length, model.proposals.candidates.length,
+      `every candidate canvas binds shared review evidence ${frame.frameId}`);
+    assert.equal((html.match(new RegExp(`src="${frame.path.replace('review/', '')}"`, 'g')) ?? []).length >= model.proposals.candidates.length, true);
+  }
+  for (const candidate of model.proposals.candidates) {
+    for (const [kind, paths] of [['layout', candidate.layoutProofs], ['motion', candidate.motionStoryboard]]) {
+      for (const path of paths) {
+        const safeUrl = path.replace('review/', '');
+        const basename = safeUrl.split('/').at(-1);
+        const label = kind === 'motion' ? 'motion storyboard' : kind;
+        assert.match(html, new RegExp(`<img class="candidate-proof-image" src="${safeUrl}" alt="${candidate.title} ${label} proof`));
+        assert.equal(html.includes(`<li>${basename}</li>`), false, 'proofs render as images rather than basename-only lists');
+      }
+    }
+  }
+  assert.equal((html.match(/class="candidate-proof-strip"/g) ?? []).length, model.proposals.candidates.length);
 
   const fixture = interactionFixture();
   const script = await readFile(new URL('../../assets/director-workbench/workbench.js', import.meta.url), 'utf8');

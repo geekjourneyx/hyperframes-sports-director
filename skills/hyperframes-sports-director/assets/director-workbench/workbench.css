@@ -22,12 +22,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--hf-accent); out
 .stage-heading h1 { margin: 5px 0 0; font: 400 clamp(38px, 4.2vw, 74px)/.88 "HF Editorial", serif; letter-spacing: -.045em; }
 .stage-thesis { max-width: 520px; color: var(--hf-text-secondary); font: italic 15px/1.55 "HF Editorial", serif; }
 .direction-canvas { --candidate-canvas: #08090A; --candidate-ink: #F4F0E6; --candidate-accent: #D6A65B; --candidate-signal: #D7D1C3; position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--candidate-canvas); color: var(--candidate-ink); border: 1px solid var(--hf-line); box-shadow: 0 30px 80px var(--hf-background); isolation: isolate; }
-.direction-canvas::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 9.8%, rgba(255,255,255,.025) 10%); opacity: .5; }
-.candidate-frame { position: absolute; inset: 8% 7%; border: 1px solid color-mix(in srgb, var(--candidate-ink) 22%, transparent); }
-.candidate-index { position: absolute; top: 7%; left: 5%; color: var(--candidate-accent); font: 12px/1 "HF Ledger", monospace; letter-spacing: .18em; }
-.candidate-title { position: absolute; left: 8%; bottom: 15%; max-width: 72%; font: 400 clamp(30px, 4.8vw, 78px)/.86 "HF Editorial", serif; letter-spacing: -.055em; text-transform: uppercase; }
-.candidate-timecode { position: absolute; right: 5%; bottom: 6%; color: var(--candidate-signal); font: 12px/1 "HF Ledger", monospace; }
-.candidate-rule { position: absolute; top: 18%; right: 9%; width: 16%; height: 2px; background: var(--candidate-accent); transform-origin: right; transform: rotate(-18deg); }
+.candidate-evidence-ribbon { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(var(--candidate-evidence-count), minmax(0, 1fr)); opacity: .36; filter: grayscale(1) contrast(1.08); }
+.candidate-evidence-ribbon::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--candidate-canvas) 0%, transparent 44%, var(--candidate-canvas) 100%); }
+.candidate-evidence-frame { width: 100%; height: 100%; min-width: 0; object-fit: cover; border-right: 1px solid color-mix(in srgb, var(--candidate-ink) 12%, transparent); }
+.direction-canvas::before { content: ""; position: absolute; z-index: 1; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 9.8%, rgba(255,255,255,.025) 10%); opacity: .5; }
+.candidate-frame { position: absolute; z-index: 2; inset: 8% 7%; border: 1px solid color-mix(in srgb, var(--candidate-ink) 22%, transparent); }
+.candidate-index { position: absolute; z-index: 3; top: 7%; left: 5%; color: var(--candidate-accent); font: 12px/1 "HF Ledger", monospace; letter-spacing: .18em; }
+.candidate-title { position: absolute; z-index: 3; left: 8%; bottom: 15%; max-width: 72%; font: 400 clamp(30px, 4.8vw, 78px)/.86 "HF Editorial", serif; letter-spacing: -.055em; text-transform: uppercase; }
+.candidate-timecode { position: absolute; z-index: 3; right: 5%; bottom: 6%; color: var(--candidate-signal); font: 12px/1 "HF Ledger", monospace; }
+.candidate-rule { position: absolute; z-index: 3; top: 18%; right: 9%; width: 16%; height: 2px; background: var(--candidate-accent); transform-origin: right; transform: rotate(-18deg); }
 .canvas-meta { margin-top: 12px; display: flex; justify-content: space-between; color: var(--hf-text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .stage-ledger { border-top: 1px solid var(--hf-line); }
 .ledger-row { padding: 14px 0; border-bottom: 1px solid var(--hf-line); }
@@ -56,6 +59,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--hf-accent); out
 .story-columns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 34px; }
 .candidate-detail { display: none; }
 .candidate-detail.is-active { display: block; }
+.candidate-proof-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--hf-line); }
+.candidate-proof { margin: 0; min-width: 0; border: 1px solid var(--hf-line); background: var(--hf-surface); }
+.candidate-proof-image { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--hf-surface-raised); }
+.candidate-proof figcaption { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; color: var(--hf-text-secondary); font-size: 12px; text-transform: uppercase; }
 .story-column { padding-top: 14px; border-top: 1px solid var(--hf-line); }
 .story-column h3 { margin: 8px 0; font: 400 18px/1 "HF Editorial", serif; text-transform: uppercase; }
 .story-column p, .rail-copy, .risk-list { color: var(--hf-text-secondary); font-size: 14px; line-height: 1.6; }
