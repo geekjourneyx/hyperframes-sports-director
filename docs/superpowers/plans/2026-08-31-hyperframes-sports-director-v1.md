@@ -20,10 +20,11 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 |---|---|---|---|
 | 1 — lineage and scaffold | Complete | `e9a88afc33d074179b569e6d84802d127ed555ed` | Inspect only; do not recreate. |
 | 2 — no-Skill baselines and executable rubric | Complete | `2e7101fcd52d14ccf5d4eb98d886e930560932b3` | Baseline outputs are immutable test evidence. |
-| 3 — versioned contracts and lifecycle | Next | — | Start from current remote `main`; no Task 3 implementation has been accepted remotely. |
-| 4–19 | Pending | — | Execute in order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 3 — versioned contracts and lifecycle | Complete | `3a29147f7f7324ccfc606d932cfcf3939c05ebb2` | Contract, lifecycle, integrity, and portability primitives are accepted; do not recreate. |
+| 4 — declarative sport/device/delivery profiles | Next | — | Start from current remote `main`; no Task 4 implementation has been accepted remotely. |
+| 5–19 | Pending | — | Execute in order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
-A prior workspace may contain abandoned, uncommitted Task 3 files. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
+A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
 This plan was recalibrated after the 2026-09-01 director-workbench design review. The recalibration narrows release-grade sport support to cycling, hiking/non-technical mountain journey, and pool swimming; adds a single `DIRECTOR_LOCK` approval; and makes Tasks 10–11 the workbench/lock proof before production visual assets. It does not change the accepted status of Tasks 1–2.
 
