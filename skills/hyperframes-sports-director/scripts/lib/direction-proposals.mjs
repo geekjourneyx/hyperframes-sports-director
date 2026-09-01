@@ -107,6 +107,22 @@ function activePrototype(message) {
   return new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', message);
 }
 
+function assertSvgPrivacy(value, kind) {
+  const at = `prototype SVG ${kind}`;
+  if (/(?:^|[\s"'(])(?:\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*|[A-Za-z]:[\\/][^\s<>"']+)/i.test(value)) {
+    throw new DirectionProposalError('E_REFERENCE_ABSOLUTE', `${at} contains an absolute path`);
+  }
+  if (/\braw\s*gps\b|(?:^|\D)-?\d{1,2}\.\d{4,}\s*,\s*-?\d{1,3}\.\d{4,}(?:\D|$)|\b(?:lat(?:itude)?|lon(?:gitude)?)\s*[:=]?\s*[+-]?\d{1,3}\.\d{2,}\b/i.test(value)) {
+    throw new DirectionProposalError('E_RAW_GPS', `${at} contains raw GPS`);
+  }
+  if (/\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9.-]+/i.test(value)) {
+    throw new DirectionProposalError('E_REFERENCE_REMOTE', `${at} contains a URL`);
+  }
+  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b[A-Z0-9][A-Z0-9._-]*\.(?:mov|mp4|m4v|mkv|avi|webm|jpg|jpeg|png|webp|heic|tif|tiff|wav|mp3|m4a|aac|flac|fit|gpx|tcx|kml)\b/i.test(value)) {
+    throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', `${at} contains a private filename or email`);
+  }
+}
+
 function readSvgTag(text, start) {
   let quote = null;
   for (let index = start + 1; index < text.length; index += 1) {
@@ -154,12 +170,15 @@ function parseSvgAttributes(source, element) {
     }
     if (name === 'xmlns') {
       if (element !== 'svg' || value !== SVG_NAMESPACE) throw activePrototype('prototype SVG namespace is invalid');
-    } else if (name === 'id') {
-      if (!SVG_SAFE_ID.test(value)) throw activePrototype('prototype SVG ID is invalid');
     } else {
-      const localReference = SVG_LOCAL_REFERENCE_ATTRIBUTES.has(name) && /^url\(#[A-Za-z_][A-Za-z0-9_.-]*\)$/.test(value);
-      if (!localReference && (!SVG_SAFE_ATTRIBUTE_VALUE.test(value) || /(?:url|data|javascript|@import|font-face)/i.test(value))) {
-        throw activePrototype('prototype SVG attribute value is outside the inert subset');
+      assertSvgPrivacy(value, 'attribute');
+      if (name === 'id') {
+        if (!SVG_SAFE_ID.test(value)) throw activePrototype('prototype SVG ID is invalid');
+      } else {
+        const localReference = SVG_LOCAL_REFERENCE_ATTRIBUTES.has(name) && /^url\(#[A-Za-z_][A-Za-z0-9_.-]*\)$/.test(value);
+        if (!localReference && (!SVG_SAFE_ATTRIBUTE_VALUE.test(value) || /(?:url|data|javascript|@import|font-face)/i.test(value))) {
+          throw activePrototype('prototype SVG attribute value is outside the inert subset');
+        }
       }
     }
     attributes.set(name, value);
@@ -174,7 +193,7 @@ function assertInertSvg(bytes) {
   } catch {
     throw activePrototype('prototype SVG must be valid UTF-8');
   }
-  if (!text || /[\\&]|<\!|<\?|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
+  if (!text || /&|<\!|<\?|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
     throw activePrototype('prototype SVG contains declarations, entities, escapes, or invalid characters');
   }
 
@@ -190,6 +209,7 @@ function assertInertSvg(bytes) {
       if (content.trim() && (!stack.length || !SVG_TEXT_ELEMENTS.has(stack.at(-1)))) {
         throw activePrototype('prototype SVG text is outside an allowed text element');
       }
+      if (content.trim()) assertSvgPrivacy(content, 'text');
       cursor = end;
       continue;
     }

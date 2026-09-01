@@ -483,6 +483,31 @@ test('proposal compiler accepts the strict code-rendered SVG subset', async (t) 
   assert.equal(result.candidates.length, 2);
 });
 
+test('proposal compiler rejects private data in allowed SVG text and attributes', async (t) => {
+  const variants = [
+    ['POSIX path', '<text>/Users/alice/Alice-Sunday-Ride.mov</text>', 'E_REFERENCE_ABSOLUTE', 'prototype SVG text contains an absolute path'],
+    ['Windows path', '<title>C:\\Users\\Alice\\Sunday-Ride.mov</title>', 'E_REFERENCE_ABSOLUTE', 'prototype SVG text contains an absolute path'],
+    ['private basename', '<desc>Alice-Sunday-Ride.mov</desc>', 'E_REFERENCE_PRIVATE_NAME', 'prototype SVG text contains a private filename or email'],
+    ['GPS pair', '<text>37.7749, -122.4194</text>', 'E_RAW_GPS', 'prototype SVG text contains raw GPS'],
+    ['latitude label', '<title>Latitude: 37.7749</title>', 'E_RAW_GPS', 'prototype SVG text contains raw GPS'],
+    ['remote URL', '<desc>Review at https://example.com/private</desc>', 'E_REFERENCE_REMOTE', 'prototype SVG text contains a URL'],
+    ['email', '<text>alice@example.com</text>', 'E_REFERENCE_PRIVATE_NAME', 'prototype SVG text contains a private filename or email'],
+    ['attribute basename', '<rect id="Alice-Sunday-Ride.mov"/>', 'E_REFERENCE_PRIVATE_NAME', 'prototype SVG attribute contains a private filename or email'],
+  ];
+  for (const [name, content, code, message] of variants) {
+    const { projectRoot, candidates } = await fixture(t);
+    const path = candidates[0].layoutProofs[0];
+    const bytes = `<svg xmlns="http://www.w3.org/2000/svg">${content}</svg>`;
+    candidates[0].previewArtifactDigests[path] = sha(bytes);
+    await writeFile(join(projectRoot, path), bytes);
+    await assert.rejects(
+      () => compileDirectionProposals({ projectRoot, candidates }),
+      (error) => error.code === code && error.message === message,
+      name,
+    );
+  }
+});
+
 test('workbench is a deterministic escaped evidence view with isolated candidates and one dominant director canvas', async (t) => {
   const { projectRoot, artifact } = await compileAndReady(t);
   const first = await buildWorkbenchModel(projectRoot);
