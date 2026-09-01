@@ -1,7 +1,8 @@
 # HyperFrames Sports Director v1.0.0 Design Specification
 
-**Status:** Approved for implementation planning  
-**Date:** 2026-08-31  
+**Status:** Approved for execution; Tasks 1–2 accepted on `main`  
+**Date:** 2026-09-01  
+**Implementation resume point:** Task 3 — versioned data contracts  
 **Project:** `hyperframes-sports-director`  
 **Skill:** `hyperframes-sports-director`  
 **Upstream lineage:** `geekjourneyx/hyperframes-motion-director` and `op7418/guizang-sports-skill`
@@ -27,6 +28,46 @@ Local FFmpeg/ffprobe is mandatory, not an optional export utility. It scans and 
 5. **Quality must be measurable.** Resolution, source provenance, A/V sync, frozen frames, black frames, speech cuts, duplicate shots, visual-asset integrity, and release structure have executable gates.
 6. **One core, many policies.** Sport differences belong in declarative profiles. The pipeline must not fork into separate applications for cycling, swimming, or hiking.
 7. **The Agent judges; tools measure.** Semantic shot interpretation and editorial choice remain with the Agent. Deterministic scripts probe, transform, validate, render, and score artifacts.
+
+### 2.1 Constraint authority and three truth chains
+
+The system has three independent, versioned truth chains. A later chain may reference an earlier one but may not silently rewrite it:
+
+| Truth chain | Deterministic contracts | Agent authority |
+|---|---|---|
+| Recorded-media truth | `PROBE.json → SEGMENTS.json → SHOTS.jsonl → TIMELINE.json` | Interpret meaning, select moments, and build story; never invent source ranges, camera facts, or recorded events. |
+| Activity-data truth | `ACTIVITY.json → SYNC_MAP.json → DATA_OVERLAYS.json` | Decide whether truthful metrics help the story; never change measured values, coverage, availability, sync confidence, or privacy state. |
+| Design truth | `DESIGN_SYSTEM.json + LOOK_PROFILE.json → ASSET_MANIFEST.json → MOTION_MAP.json` | Propose and select a coherent direction; after freeze, use declared tokens and ownership only. |
+
+`TIMELINE.json` may consume all three chains, but final rendering is valid only when every referenced revision is frozen and all source IDs resolve. Generated assets are always labeled as interpretive or decorative; they cannot enter the recorded-media or activity-data truth chains.
+
+### 2.2 Execution state machine and authorization
+
+Every project records its state and gate evidence in `PROJECT_STATE.json`:
+
+```text
+INTAKE
+→ CAPABILITY_CHECK
+→ SCAN
+→ ANALYZE
+→ BRIEF_LOCK
+→ ROUGH_CUT
+→ VISUAL_DIRECTION_LOCK
+→ FINAL_RENDER
+→ FINAL_QA
+→ DELIVERED
+```
+
+State transitions are deterministic and auditable:
+
+- an unreadable input directory or missing/incompatible FFmpeg/ffprobe stops before `SCAN`;
+- missing activity data is a supported branch, not a blocker: emit `ACTIVITY.json` with `status: "unavailable"`;
+- a request for analysis does not authorize rough-cut or final rendering; a request to edit and deliver a video authorizes the stages recorded in `EDIT_BRIEF.json`;
+- visual generation and final composition cannot start until `DESIGN_SYSTEM.json` and `LOOK_PROFILE.json` are frozen;
+- final rendering cannot start while source, sync, privacy, asset, motion, or timeline references are unresolved;
+- cancellation terminates child FFmpeg processes, removes incomplete temporary output, records `CANCELLED`, and never reports an encoding failure as success;
+- `DELIVERED` requires the output file to exist, be closed, re-probe successfully, pass final QC, and have review evidence generated from the encoded MP4;
+- when visual inspection is unavailable, the system may report measurable checks but must not claim visual acceptance.
 
 ## 3. UNIX design assessment
 
@@ -79,6 +120,7 @@ The default v1 delivery color space is SDR Rec.709. HDR delivery is outside v1 u
 - Critical text passes every sampled frame. Ordinary text passes at least 95% of sampled frames with no continuous failure longer than 0.25 seconds.
 - If footage cannot support the threshold, apply local shadow/stroke, scrim, mask/gradient, blur/desaturation, position change, then token-approved color change—in that order.
 - Final rendered semantic-token colors must remain within Delta E 2000 `<=3` of their declared values after the delivery color transform.
+- Route, grade, intensity, and status categories cannot rely on hue alone. Protanopia/deuteranopia simulations must preserve labels, boundaries, symbols, or patterns with at least `3:1` meaningful-graphic contrast.
 
 ### 4.3 Activity-data display authority
 
@@ -145,6 +187,7 @@ Every project workspace contains:
 ```text
 project/
   PROJECT.json
+  PROJECT_STATE.json
   EDIT_BRIEF.json
   media/originals/
   media/proxies/
@@ -158,6 +201,7 @@ project/
   direction/BRIEF_DESIGN_PROPOSAL.md
   direction/DESIGN_SYSTEM.json
   direction/LOOK_PROFILE.json
+  direction/DATA_OVERLAYS.json
   direction/BEAT_MAP.json
   direction/SCENE_SCHEMA.json
   direction/ASSET_MANIFEST.json
@@ -215,13 +259,17 @@ Low-confidence semantic records remain reviewable; validators must never invent 
 
 ### 8.3 Activity data
 
-- Accepted inputs: FIT, KML, or normalized activity JSON.
-- Normalized metrics use `null` for unavailable values.
-- Aggregations are duration- or distance-weighted where appropriate.
-- GPS and media time sync can use absolute timestamp, manual anchor, or declared offset.
-- Route visualization applies configurable start/end privacy trimming before any generated route asset.
-- Activity data can drive labels, map paths, chapter anchors, and subtle motion parameters, but not fabricate missing values.
-- Guizang-derived numeric fields remain owned by deterministic analysis. Agent-written interpretation cannot overwrite them.
+- Accepted inputs: FIT, KML, or normalized activity JSON. No input produces a valid `ACTIVITY.json` with `status: "unavailable"`.
+- Keep `metrics`, `availability`, `coverage`, `reasons`, and `sources` distinct. A missing value is `null`; numeric `0` is valid only when the source recorded zero.
+- KML without timestamps cannot produce duration, speed, pace, pause, or time-synchronized overlays. Spatial geometry never implies missing time.
+- Overall speed is total valid distance divided by total valid moving time. Heart rate, power, cadence/step rate, and temperature are weighted by valid sample count. Grade distribution is weighted by analyzed distance. Calories are summed only from device-provided estimates and carry coverage.
+- Deduplicate repeated activities before aggregation. Compare, rank, and label activities only inside compatible sport profiles; cycling speed and hiking pace never share a ranking.
+- GPS and media time sync may use absolute timestamp, manual anchor, or declared offset. `SYNC_MAP.json` records method, anchors, confidence, residual error, and valid interval.
+- Route visualization applies configurable start/end privacy trimming before any generated route asset. Public exports reference only the trimmed derivative.
+- Coverage controls display authority: below 10% suppress; 10–39.9% local observation only; 40–79.9% visible with a caveat; at least 80% may support a primary whole-activity metric when the sport profile allows it.
+- `DATA_OVERLAYS.json` is a derived allow-list, not a second calculator. It references normalized metric IDs, display authority, sync authority, wording, semantic color tokens, and timeline windows.
+- Agent copy separates recorded fact, evidence-backed interpretation, subjective narration, limitation, and action. It must not invent FTP, VO₂max, training load, recovery status, diagnosis, treatment, or other medical/training conclusions.
+- Guizang-derived numeric fields remain owned by deterministic analysis. Agent-written interpretation and UI enrichment cannot overwrite them.
 
 ### 8.4 Timeline and continuity
 
@@ -284,6 +332,16 @@ Generated assets may stylize a map, force, weather feeling, water flow, terrain,
 - Delivery uses one final lossy encode; tests use lossless/intermediate-safe fixtures.
 - Final QC measures duration, dimensions, frame rate, codec, pixel format, A/V sync, black frames, freeze spans, clipping, loudness, and suspicious detail loss.
 
+### 8.8 Honest degradation and completion semantics
+
+- Corrupt media is isolated and reported by basename. Valid siblings continue when the brief can still be satisfied.
+- Unsupported files remain in the inventory with an explicit status; they are never silently ignored or rewritten.
+- A missing optional capability removes only the dependent enhancement. Missing mandatory FFmpeg/ffprobe or an incompatible Node runtime stops before mutation.
+- Analysis complete, rough cut complete, final render written, and delivery accepted are different states with different evidence.
+- Browser previews, proxy renders, process exit code `0`, and a plausible filename cannot independently satisfy delivery.
+- Portable JSON/Markdown artifacts use project-relative paths or basenames and never expose the user's absolute input path.
+- Any temporary preview server binds to `127.0.0.1`/localhost only, uses a random session identifier and a `0700` session directory, expires stale sessions, and supports exact-session cleanup.
+
 ## 9. Quality model and release gates
 
 The v1 release score is 100 points:
@@ -309,8 +367,8 @@ Release requires:
 
 ## 10. Test strategy
 
-1. **Unit tests:** JSON schema helpers, time math, profile resolution, duplicate spacing, speech-boundary validation, asset ownership, privacy trimming, cache keys.
-2. **Contract tests:** each CLI command receives a minimal valid fixture and representative invalid fixtures; stdout JSON and exit codes are asserted.
+1. **Unit tests:** JSON schema helpers, state transitions, time math, profile resolution, missing-value propagation, weighted activity formulas, coverage authority, duplicate spacing, speech-boundary validation, asset ownership, privacy trimming, cache keys.
+2. **Contract tests:** each CLI command receives a minimal valid fixture and representative invalid fixtures; stdout JSON, exit codes, project-relative paths, cancellation, cleanup, and completion evidence are asserted.
 3. **Synthetic-media tests:** FFmpeg generates a mixed input directory with tiny 16:9 video, still images, music/audio, activity files, deterministic colors, motion, tones, silence, speech-marker intervals, duplicates, shake, black frames, and freeze spans.
 4. **Golden pipeline evals:** cycling, hiking, and pool-swimming manifests run from project creation through final inspection.
 5. **Agent evals:** trigger and non-trigger prompts verify that the Skill activates for sports-Vlog direction while deferring generic FFmpeg questions and promotional-motion requests.
@@ -333,10 +391,13 @@ The Skill follows Codex Skill Creator, Superpowers Writing Skills, and the refer
 
 - No input media, GPS, biometrics, or generated review artifacts leave the local environment unless the user explicitly invokes a remote generation capability.
 - Image Gen prompts include only the minimum visual context needed and exclude raw GPS coordinates or private identity data by default.
+- Original GPS and biometrics remain local analysis inputs. Portable JSON, Markdown, logs, prompts, watermarks, and review packs contain only basenames, project-relative IDs, public place names when requested, and privacy-trimmed route derivatives.
+- Public route export is structurally unable to reference raw coordinates: the export contract accepts only a validated trimmed-route ID.
 - Shell commands use argument arrays, not interpolated command strings.
-- Paths are resolved within the declared project root.
-- The release contains no real user footage, route, biometric data, secrets, or generated asset licenses that prohibit redistribution.
+- Paths are resolved within the declared project root; source inputs are read-only and output paths cannot escape the project workspace.
+- Temporary sessions use random IDs, owner-only permissions, localhost binding when served, explicit expiry, and exact-session cleanup.
+- The release contains no real user footage, route, biometric data, secrets, private filenames, or generated asset licenses that prohibit redistribution.
 
 ## 12. v1.0.0 definition of done
 
-The version is complete when a clean clone can install dependencies, accept a mixed local input directory and editing brief, generate deterministic test fixtures, run the three golden profiles, mix requested music, apply requested copy, produce final MP4 files at 4K and 1080p within declared size constraints, emit review reports and frame evidence, pass the 90/100 threshold with no hard-gate failure, package the Skill, and pass a release dry run for tag `v1.0.0`.
+The version is complete when a clean clone can install dependencies, accept a mixed local input directory and editing brief, generate deterministic test fixtures, run the three golden profiles, mix requested music, apply requested copy, produce final MP4 files at 4K and 1080p within declared size constraints, re-probe those closed files, emit encoded-MP4 review reports and frame evidence, reach `DELIVERED` through valid state transitions, pass the 90/100 threshold with no hard-gate failure, package the Skill, and pass a release dry run for tag `v1.0.0`.

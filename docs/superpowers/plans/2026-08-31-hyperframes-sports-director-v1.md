@@ -10,6 +10,19 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-31-hyperframes-sports-director-v1-design.md`
 
+## Execution Status and Remote Resume Point
+
+This table is authoritative for handoff. Do not repeat an accepted task merely because its historical task steps remain visible.
+
+| Task | Remote status | Accepted commit | Handoff rule |
+|---|---|---|---|
+| 1 — lineage and scaffold | Complete | `e9a88afc33d074179b569e6d84802d127ed555ed` | Inspect only; do not recreate. |
+| 2 — no-Skill baselines and executable rubric | Complete | `2e7101fcd52d14ccf5d4eb98d886e930560932b3` | Baseline outputs are immutable test evidence. |
+| 3 — versioned contracts | Next | — | Start from current remote `main`; no Task 3 implementation has been accepted remotely. |
+| 4–17 | Pending | — | Execute in order after each preceding task passes independent review. |
+
+A prior workspace may contain abandoned, uncommitted Task 3 files. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
+
 ## Global Constraints
 
 - [ ] Start a new AGPL-3.0 repository named `hyperframes-sports-director`; do not edit either upstream repository in place.
@@ -23,6 +36,8 @@
 - [ ] Follow the Skill TDD order: run new-skill baseline evals without the Skill, capture failures, write the minimum useful Skill, run with-Skill evals, then refactor from observed failures.
 - [ ] Follow code TDD strictly: add one failing test, run it and verify the expected failure, add minimum production code, rerun the focused test, then run the full suite before committing.
 - [ ] Source footage and recorded data are evidence. Generated imagery may interpret or bridge experience but may not impersonate real footage or invent metrics.
+- [ ] Keep the three truth chains independent: recorded media (`PROBE → SEGMENTS → SHOTS → TIMELINE`), activity data (`ACTIVITY → SYNC_MAP → DATA_OVERLAYS`), and design (`DESIGN_SYSTEM + LOOK_PROFILE → ASSET_MANIFEST → MOTION_MAP`). Agent interpretation may reference but never overwrite deterministic facts.
+- [ ] Track auditable project transitions in `PROJECT_STATE.json`; analysis, rough cut, final render, final QA, cancellation, and delivery have distinct completion evidence.
 - [ ] Missing activity values are `null` or `status: "unavailable"`, never numeric zero.
 - [ ] Activity data is optional. With no FIT/KML/normalized activity JSON, the full media-editing pipeline still completes and emits `ACTIVITY.json` with `status: "unavailable"` without empty data graphics.
 - [ ] Freeze one project-level `DESIGN_SYSTEM.json` and one independent `LOOK_PROFILE.json` before generating visual assets. Scenes may reference semantic tokens but may not introduce arbitrary colors.
@@ -76,6 +91,7 @@ hyperframes-sports-director/
     │   └── workflow.md
     ├── schemas/
     │   ├── activity.schema.json
+    │   ├── data-overlays.schema.json
     │   ├── asset-manifest.schema.json
     │   ├── beat-map.schema.json
     │   ├── edit-brief.schema.json
@@ -84,6 +100,7 @@ hyperframes-sports-director/
     │   ├── media-index.schema.json
     │   ├── motion-map.schema.json
     │   ├── project.schema.json
+    │   ├── project-state.schema.json
     │   ├── review-metrics.schema.json
     │   ├── scene-schema.schema.json
     │   ├── shot.schema.json
@@ -92,6 +109,7 @@ hyperframes-sports-director/
     │   └── transcript.schema.json
     ├── templates/
     │   ├── ACTIVITY.template.json
+    │   ├── DATA_OVERLAYS.template.json
     │   ├── ASSET_MANIFEST.template.json
     │   ├── BEAT_MAP.template.json
     │   ├── BRIEF_DESIGN_PROPOSAL.template.md
@@ -101,6 +119,7 @@ hyperframes-sports-director/
     │   ├── MEDIA_INDEX.template.json
     │   ├── MOTION_MAP.template.json
     │   ├── PROJECT.template.json
+    │   ├── PROJECT_STATE.template.json
     │   ├── REVIEW_REPORT.template.md
     │   ├── SCENE_SCHEMA.template.json
     │   ├── SHOT.template.json
@@ -160,6 +179,8 @@ Expected final result: all commands exit `0`; `npm run eval` reports three profi
 
 ## Task 1: Freeze Upstream Lineage and Scaffold the Repository
 
+**Remote status:** Complete and accepted. Do not re-execute this task.
+
 **Files:**
 - Create: `package.json`
 - Create: `.gitignore`
@@ -171,7 +192,7 @@ Expected final result: all commands exit `0`; `npm run eval` reports three profi
 - Create: `skills/hyperframes-sports-director/scripts/tests/upstream_lock.test.mjs`
 - Create: `skills/hyperframes-sports-director/scripts/lib/files.mjs`
 
-- [ ] **Step 1: Initialize the new repository and resolve immutable upstream SHAs**
+- [x] **Step 1: Initialize the new repository and resolve immutable upstream SHAs**
 
 Run:
 
@@ -186,7 +207,7 @@ git ls-remote https://github.com/op7418/guizang-sports-skill.git HEAD
 
 Write the returned 40-character SHAs and repository URLs into `UPSTREAM.lock.json`. Do not copy a sample SHA from this plan.
 
-- [ ] **Step 2: Write the failing lineage test**
+- [x] **Step 2: Write the failing lineage test**
 
 ```js
 import test from 'node:test';
@@ -206,7 +227,7 @@ test('pins both AGPL upstreams to immutable commits', async () => {
 });
 ```
 
-- [ ] **Step 3: Run RED, then add minimal repository metadata**
+- [x] **Step 3: Run RED, then add minimal repository metadata**
 
 Run `node --test skills/hyperframes-sports-director/scripts/tests/upstream_lock.test.mjs`. Expected RED: `ENOENT: UPSTREAM.lock.json`.
 
@@ -232,7 +253,7 @@ Create `package.json` with name/version/type/engine and scripts, then add the li
 }
 ```
 
-- [ ] **Step 4: Add the derivation matrix**
+- [x] **Step 4: Add the derivation matrix**
 
 `docs/upstream-derivation.md` must map each retained HyperFrames contract to its sports adaptation and record Guizang's activity normalization/privacy lineage. At minimum map:
 
@@ -244,7 +265,7 @@ Create `package.json` with name/version/type/engine and scripts, then add the li
 | Motion primitives/schema/beat map | schemas and templates | Retain as separate contracts |
 | Guizang report contract | activity schema/analyzer | Adapt null/privacy/weighted metrics |
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and commit**
 
 Run the focused test, then `npm test`. Expected: both exit `0`.
 
@@ -255,6 +276,8 @@ git commit -m "chore: scaffold sports vlog director v1"
 
 ## Task 2: Establish Skill RED Baselines Before Writing `SKILL.md`
 
+**Remote status:** Complete and accepted. Do not re-execute this task.
+
 **Files:**
 - Create: `skills/hyperframes-sports-director/evals/evals.json`
 - Create: `skills/hyperframes-sports-director/evals/rubric.json`
@@ -263,11 +286,11 @@ git commit -m "chore: scaffold sports vlog director v1"
 - Create: `docs/skill-baseline-report.md`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Write a failing eval-shape test**
+- [x] **Step 1: Write a failing eval-shape test**
 
 Assert that `evals.json` has at least six realistic prompts, including a mixed video/image directory, cycling with FIT data, hiking without data, pool swimming, noisy speech with background music, 4K delivery with a file-size limit, copy requirements, and visual-component generation. Assert `trigger-evals.json` contains exactly 20 items, 10 `should_trigger: true` and 10 hard near-miss negatives.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -277,7 +300,7 @@ node --test skills/hyperframes-sports-director/scripts/tests/eval_contract.test.
 
 Expected RED: missing eval files.
 
-- [ ] **Step 3: Add realistic eval prompts and objective expectations**
+- [x] **Step 3: Add realistic eval prompts and objective expectations**
 
 Use this record shape:
 
@@ -292,7 +315,7 @@ Use this record shape:
 
 Near-miss negatives must include: a generic FFmpeg concat command, a product launch promo, a single photo retouch, sports-data-only analysis, a vertical TikTok ad, and a request to fabricate a faster pace.
 
-- [ ] **Step 4: Run independent no-Skill baselines**
+- [x] **Step 4: Run independent no-Skill baselines**
 
 Before creating `SKILL.md`, run all six prompts in fresh contexts with no access to the Skill. Store raw outputs in the gitignored sibling directory `hyperframes-sports-director-workspace/iteration-0/without_skill/`. Record observed failures verbatim in `docs/skill-baseline-report.md` under these categories:
 
@@ -306,7 +329,7 @@ Before creating `SKILL.md`, run all six prompts in fresh contexts with no access
 
 Do not invent baseline failures that did not occur.
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and commit**
 
 Run the eval-shape test. Expected: pass.
 
@@ -332,6 +355,7 @@ Tests must prove:
 
 ```js
 assert.equal(project.schemaVersion, '1.0.0');
+assert.equal(projectState.state, 'INTAKE');
 assert.equal(editBrief.delivery.aspectRatio, '16:9');
 assert.equal(editBrief.music.mode, 'provided');
 assert.equal(mediaIndex.entries[0].sourceRootReadOnly, true);
@@ -339,12 +363,13 @@ assert.equal(activity.metrics.averageHeartRate, null);
 assert.equal(activity.availability.heartRate, 'unavailable');
 assert.notEqual(assetManifest.$id, motionMap.$id);
 assert.notEqual(motionMap.$id, timeline.$id);
+assert.notEqual(dataOverlays.$id, activity.$id);
 assert.equal(activity.status, 'unavailable');
 assert.equal(designSystem.status, 'frozen');
 assert.equal(lookProfile.output.colorSpace, 'rec709-sdr');
 ```
 
-Also test unique media/shot IDs, optional-activity status, mixed-media classification, copy/music modes, maximum-file-size semantics, design-system revisions, semantic-token references, independent look profiles, monotonic destination times, source bounds, ISO-8601 timestamps, and rejection of unknown schema versions.
+Also test unique media/shot IDs, optional-activity status, separate metric/availability/coverage/reason/source maps, mixed-media classification, copy/music modes, maximum-file-size semantics, design-system revisions, semantic-token references, independent look profiles, valid `PROJECT_STATE` transitions, `DATA_OVERLAYS` references, monotonic destination times, source bounds, ISO-8601 timestamps, portable project-relative paths, and rejection of unknown schema versions.
 
 - [ ] **Step 2: Run RED**
 
@@ -366,7 +391,7 @@ Use Ajv strict mode with `allErrors: true`. Errors printed by `validate_artifact
 
 - [ ] **Step 4: Add complete templates with no placeholders**
 
-Templates must be immediately valid documents using empty collections, `null`, or `status: "unavailable"`; they must not use instructional strings such as “fill this in.” `EDIT_BRIEF` must cover sport, story, music, copy, duration, format, codecs, raster, frame-rate policy, maximum size, inclusions, exclusions, and privacy. `DESIGN_SYSTEM` defines frozen semantic tokens and contrast thresholds; `LOOK_PROFILE` defines input/working/output color handling and defaults to SDR Rec.709. Keep `ASSET_MANIFEST`, `MOTION_MAP`, and `TIMELINE` as separate files.
+Templates must be immediately valid documents using empty collections, `null`, or `status: "unavailable"`; they must not use instructional strings such as “fill this in.” `PROJECT_STATE` must enumerate auditable gates from `INTAKE` through `DELIVERED` plus `CANCELLED`. `DATA_OVERLAYS` must reference normalized metric IDs and may not contain independently calculated values. `EDIT_BRIEF` must cover sport, story, music, copy, duration, format, codecs, raster, frame-rate policy, maximum size, inclusions, exclusions, and privacy. `DESIGN_SYSTEM` defines frozen semantic tokens and contrast thresholds; `LOOK_PROFILE` defines input/working/output color handling and defaults to SDR Rec.709. Keep `ASSET_MANIFEST`, `MOTION_MAP`, and `TIMELINE` as separate files.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -421,19 +446,20 @@ git add skills/hyperframes-sports-director/profiles skills/hyperframes-sports-di
 git commit -m "feat: add sport-neutral policy profiles"
 ```
 
-## Task 5: Create Projects and Verify Local Capabilities
+## Task 5: Create Projects, Enforce State Transitions, and Verify Local Capabilities
 
 **Files:**
 - Create: `skills/hyperframes-sports-director/scripts/create_project.mjs`
 - Create: `skills/hyperframes-sports-director/scripts/check_install.mjs`
 - Create: `skills/hyperframes-sports-director/scripts/lib/cli.mjs`
+- Create: `skills/hyperframes-sports-director/scripts/lib/project-state.mjs`
 - Create: `skills/hyperframes-sports-director/scripts/tests/create_project.test.mjs`
 - Create: `skills/hyperframes-sports-director/scripts/tests/check_install.test.mjs`
 - Create: `docs/architecture.md`
 
 - [ ] **Step 1: Write failing CLI tests using a temporary directory**
 
-The create test must assert the exact artifact tree from the design spec, copied valid templates, selected profiles in `PROJECT.json`, normalized choices in `EDIT_BRIEF.json`, and no copied media when reference mode is used. The install test must dependency-inject command results so missing `ffmpeg`, `ffprobe`, required filters, Node version, Sharp, and HyperFrames scaffold are independently testable.
+The create test must assert the exact artifact tree from the design spec, copied valid templates, selected profiles in `PROJECT.json`, normalized choices in `EDIT_BRIEF.json`, and no copied media when reference mode is used. The install test must dependency-inject command results so missing `ffmpeg`, `ffprobe`, required filters, Node version, Sharp, and HyperFrames scaffold are independently testable. Assert every allowed and forbidden `PROJECT_STATE` transition, analysis-only versus render authorization, cancellation cleanup, and the evidence required before `DELIVERED`.
 
 - [ ] **Step 2: Run RED**
 
@@ -456,7 +482,7 @@ node skills/hyperframes-sports-director/scripts/create_project.mjs \
   --max-size-mib 1536
 ```
 
-Refuse a non-empty destination unless `--resume` finds a compatible `PROJECT.json`. Never overwrite originals.
+Refuse a non-empty destination unless `--resume` finds compatible `PROJECT.json` and `PROJECT_STATE.json` documents. Never overwrite originals. Expose a pure state-transition validator; invalid transitions fail before filesystem or FFmpeg mutation.
 
 - [ ] **Step 4: Implement machine-readable install checks**
 
@@ -544,8 +570,13 @@ The reference must tell the Agent to inspect contact sheets first, open short cl
 
 Test FIT, KML, and normalized JSON inputs. Assert:
 
-- missing heart rate stays `null` and `unavailable`;
-- averages use duration or distance weighting, not arithmetic mean of segment means;
+- missing heart rate stays `null` and `unavailable`, while a recorded zero remains zero;
+- KML without timestamps leaves duration, speed, pace, pause, and sync overlays unavailable;
+- overall speed uses total valid distance divided by total valid moving time;
+- heart rate, power, cadence/step rate, and temperature use valid-sample weighting;
+- grade distribution uses analyzed-distance weighting and rejects short elevation spikes;
+- device-provided calories are summed only with reported coverage;
+- duplicate activities are excluded before aggregation;
 - an invalid file exits non-zero with a diagnostic and no partial metric document;
 - start/end GPS privacy trimming occurs before route graphics are exported;
 - absolute timestamp, manual anchor, and explicit offset produce reproducible `SYNC_MAP.json`;
@@ -561,7 +592,7 @@ Expected: missing activity analyzer.
 
 - [ ] **Step 3: Implement normalization and privacy as pure functions**
 
-Expose `normalizeActivity`, `weightedAverage`, `trimPrivateEndpoints`, and `buildSyncMap`. Reuse/adapt Guizang code only with file-level attribution. Keep raw GPS and biometrics out of logs.
+Expose `normalizeActivity`, `weightedAverage`, `distanceWeightedDistribution`, `deduplicateActivities`, `trimPrivateEndpoints`, `buildSyncMap`, and `buildDataOverlayAllowList`. Reuse/adapt Guizang code only with file-level attribution. Keep raw GPS, biometrics, absolute input paths, and private filenames out of logs and portable artifacts. The overlay allow-list references normalized facts and display authority; it never recalculates metrics.
 
 - [ ] **Step 4: Add CLI contract**
 
@@ -573,7 +604,7 @@ node skills/hyperframes-sports-director/scripts/analyze_activity.mjs \
   --trim-end-m 300
 ```
 
-Write normalized `ACTIVITY.json` and `SYNC_MAP.json`; do not render a report or graphic in this command.
+Write normalized `ACTIVITY.json`, `SYNC_MAP.json`, and `direction/DATA_OVERLAYS.json`; do not render a report or graphic in this command. Public route output must accept only the validated trimmed-route ID.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -678,7 +709,7 @@ Run `node --test .../image_assets.test.mjs`, full tests, and commit.
 
 - [ ] **Step 1: Write failing motion-contract tests**
 
-Assert every visible asset has exactly one motion owner, every scene has entry/hold/exit intervals, each transition owns a non-empty midpoint, and timeline values are deterministic for the same seed. Reject `Date.now`, unseeded `Math.random`, `setTimeout`, `setInterval`, and render-truth `requestAnimationFrame` in the scaffold. Reject raw scene-local color literals, unresolved semantic tokens, non-frozen design systems, undeclared input color interpretation, and non-Rec.709 v1 delivery.
+Assert every visible asset has exactly one motion owner, every scene has entry/hold/exit intervals, each transition owns a non-empty midpoint, and timeline values are deterministic for the same seed. `DATA_OVERLAYS.json` may reference only normalized activity facts with sufficient display and sync authority; the runtime may format but never recalculate metrics. Reject `Date.now`, unseeded `Math.random`, `setTimeout`, `setInterval`, and render-truth `requestAnimationFrame` in the scaffold. Reject raw scene-local color literals, unresolved semantic tokens, non-frozen design systems, undeclared input color interpretation, and non-Rec.709 v1 delivery. Simulated protanopia/deuteranopia must preserve route/grade/status meaning through labels, boundaries, symbols, or patterns with at least 3:1 meaningful-graphic contrast.
 
 - [ ] **Step 2: Run RED**
 
@@ -690,7 +721,7 @@ Expose registered timelines through `window.__timelines`. Composition renders a 
 
 - [ ] **Step 4: Implement design tokens and transition grammar**
 
-Define tokens for title hierarchy, metric typography, safe zones, spacing, contrast, colors, strokes, radii, shadow/depth, entry/exit durations, and easing. Preserve the HyperFrames fallback grammar (`#050505`, white/gray, restrained warm gold), but allow one footage-derived project accent and Guizang-derived semantic data colors only through the frozen design system. Transitions must declare relationship: spatial continuation, motion match, shape/mask carry, environmental texture bridge, or data-to-footage bridge. Pure decorative transitions fail review.
+Define tokens for title hierarchy, metric typography, safe zones, spacing, contrast, colors, strokes, radii, shadow/depth, entry/exit durations, easing, and redundant non-hue encodings for semantic data. Preserve the HyperFrames fallback grammar (`#050505`, white/gray, restrained warm gold), but allow one footage-derived project accent and Guizang-derived semantic data colors only through the frozen design system. Transitions must declare relationship: spatial continuation, motion match, shape/mask carry, environmental texture bridge, or data-to-footage bridge. Pure decorative transitions fail review.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -707,7 +738,7 @@ Run motion tests twice and compare normalized outputs byte-for-byte, then full t
 
 - [ ] **Step 1: Write failing render-plan tests before invoking FFmpeg**
 
-Given a timeline and brief, assert the compiled plan resolves proxies only for rough cut, originals only for final, decodes original still images, preserves rational fps, calculates transforms from source and delivery rasters, includes source-audio bridges and requested background music, and keys cache chunks by source hash plus normalized treatment parameters.
+Given a timeline and brief, assert the compiled plan resolves proxies only for rough cut, originals only for final, decodes original still images, preserves rational fps, calculates transforms from source and delivery rasters, includes source-audio bridges and requested background music, and keys cache chunks by source hash plus normalized treatment parameters. Also test analysis-only versus final-render authorization, cancellation with child-process termination and partial-file cleanup, and a deterministic failure when the requested size target violates the clarity floor.
 
 - [ ] **Step 2: Run RED**
 
@@ -743,7 +774,7 @@ Expected: missing output inspector.
 
 - [ ] **Step 3: Implement measurable QC**
 
-Use ffprobe plus FFmpeg `blackdetect`, `freezedetect`, `ebur128`, clipping analysis, and SSIM on controlled identity segments. Sample local contrast across every readable interval: critical text must pass every sample; ordinary text must pass at least 95% with no failure longer than 0.25 seconds. Verify semantic-token output within Delta E 2000 `<=3`. Produce `review/metrics.json` conforming to the schema and a readable `REVIEW_REPORT.md` with hard failures first.
+Use ffprobe plus FFmpeg `blackdetect`, `freezedetect`, `ebur128`, clipping analysis, and SSIM on controlled identity segments. A process exit code or existing filename is insufficient: close and re-probe the final file, verify its requested delivery contract, then transition `PROJECT_STATE.json` to `DELIVERED` only after all hard gates and encoded-file evidence pass. Sample local contrast across every readable interval: critical text must pass every sample; ordinary text must pass at least 95% with no failure longer than 0.25 seconds. Verify semantic-token output within Delta E 2000 `<=3`. Produce `review/metrics.json` conforming to the schema and a readable `REVIEW_REPORT.md` with hard failures first.
 
 - [ ] **Step 4: Build the review pack**
 
@@ -782,7 +813,7 @@ description: Use when editing a local directory of sports videos, action-camera 
 ---
 ```
 
-`SKILL.md` contains only: purpose, when/not to use, input-directory and editing-brief discovery, the phase router, mandatory FFmpeg and HyperFrames boundaries, core truth/provenance/original-media invariants, exact reference routing, required output artifacts, and completion gates. Input discovery normalizes background music, copy/captions, duration, output container/codecs, resolution, frame-rate policy, maximum file size, required moments, exclusions, and privacy; ask only when a missing value materially changes the edit. It must not duplicate FFmpeg procedures, sport tables, schemas, or long visual rules.
+`SKILL.md` contains only: purpose, when/not to use, input-directory and editing-brief discovery, the `PROJECT_STATE` phase router, mandatory FFmpeg and HyperFrames boundaries, the three truth-chain invariants, exact reference routing, required output artifacts, honest degradation, authorization boundaries, and completion gates. Input discovery normalizes background music, copy/captions, duration, output container/codecs, resolution, frame-rate policy, maximum file size, required moments, exclusions, and privacy; ask only when a missing value materially changes the edit. It must not duplicate FFmpeg procedures, sport tables, schemas, or long visual rules.
 
 - [ ] **Step 4: Add progressive reference routing and UI metadata**
 
@@ -895,7 +926,7 @@ Expected: missing release files/assets.
 
 - [ ] **Step 3: Write concise user and contributor documentation**
 
-README covers scope, install, local input-directory contract, editing brief, background music, copy/captions, format/codecs/file-size controls, mandatory FFmpeg, mandatory HyperFrames, typical three-minute 16:9 4K/1080p use, supported sports, project command sequence, data truth, privacy, and examples. Keep operational detail in Skill references rather than duplicating it. RELEASING requires clean tree, all checks, golden scores, human visual sign-off, archive checksum, and explicit tag confirmation.
+README covers scope, install, local input-directory contract, editing brief, background music, copy/captions, format/codecs/file-size controls, mandatory FFmpeg, mandatory HyperFrames, typical three-minute 16:9 4K/1080p use, supported sports, project command sequence, three truth chains, state/authorization semantics, data truth, privacy, cancellation, honest degradation, and examples. Keep operational detail in Skill references rather than duplicating it. RELEASING requires clean tree, all checks, golden scores, human visual sign-off, archive checksum, and explicit tag confirmation.
 
 - [ ] **Step 4: Generate final icon assets and configure CI**
 
@@ -928,23 +959,29 @@ git commit -m "release: prepare hyperframes sports vlog director v1.0.0"
 
 ## Spec Coverage Review
 
+**Reviewed:** 2026-09-01. These checks cover the specification and plan; they do not claim the implementation is complete.
+
 Before implementation handoff, the executing agent must confirm:
 
-- [ ] The product is a standard directory-based sports-Vlog editing workflow Skill, not primarily a sports-data report or promotional-film generator.
-- [ ] Mixed video/image/audio/activity inputs and editing-brief choices for music, copy, format, codecs, raster, duration, and file size are first-class contracts.
-- [ ] Local FFmpeg/ffprobe and HyperFrames are mandatory core stages with tested install blockers.
-- [ ] Cycling-first but sport-neutral architecture is represented by one pipeline and seven profiles.
-- [ ] DJI Osmo Action 5 Pro is a device policy, not a hard-coded ingest path.
-- [ ] Approximate three-minute delivery and 16:9 4K/1080p are explicit contracts.
-- [ ] Scene order, camera roles, setup-tail removal, shake, duplicates, stabilization, beauty/color, speed ramps, and return-home journey grammar are covered.
-- [ ] Speech and ambience continuity are protected and testable.
-- [ ] FIT/KML truth, missing values, weighted metrics, sync, and privacy are covered.
-- [ ] HyperFrames Image Gen source worlds, component sheets, hero assets, cropping, alpha proofs, combination tests, choreography, transitions, and final MP4 evidence are retained.
-- [ ] Generated assets cannot impersonate real footage or unrecorded data.
-- [ ] UNIX responsibilities are small, composable, file-based, and independently testable.
-- [ ] Design engineering is tokenized, owned, deterministic, and evaluated at motion states.
-- [ ] Skill Creator progressive disclosure, discovery, baseline comparison, human review, and trigger optimization are explicit.
-- [ ] v1.0.0 release thresholds are numerical and reproducible.
+- [x] The product is a standard directory-based sports-Vlog editing workflow Skill, not primarily a sports-data report or promotional-film generator.
+- [x] Mixed video/image/audio/activity inputs and editing-brief choices for music, copy, format, codecs, raster, duration, and file size are first-class contracts.
+- [x] Local FFmpeg/ffprobe and HyperFrames are mandatory core stages with tested install blockers.
+- [x] Cycling-first but sport-neutral architecture is represented by one pipeline and seven profiles.
+- [x] DJI Osmo Action 5 Pro is a device policy, not a hard-coded ingest path.
+- [x] Approximate three-minute delivery and 16:9 4K/1080p are explicit contracts.
+- [x] Scene order, camera roles, setup-tail removal, shake, duplicates, stabilization, beauty/color, speed ramps, and return-home journey grammar are covered.
+- [x] Speech and ambience continuity are protected and testable.
+- [x] The three versioned truth chains and their non-overwrite authority are explicit.
+- [x] `PROJECT_STATE` gates analysis, rough cut, direction lock, final render, final QA, cancellation, and delivery.
+- [x] FIT/KML truth, missing values, exact weighted formulas, coverage authority, sync, duplicate exclusion, and privacy are covered.
+- [x] Portable artifacts omit absolute paths/private filenames; optional preview sessions are localhost-only, owner-only, expiring, and cleanable.
+- [x] Delivery requires a closed, re-probed, encoded final file plus hard-gate evidence; process exit alone is insufficient.
+- [x] HyperFrames Image Gen source worlds, component sheets, hero assets, cropping, alpha proofs, combination tests, choreography, transitions, and final MP4 evidence are retained.
+- [x] Generated assets cannot impersonate real footage or unrecorded data.
+- [x] UNIX responsibilities are small, composable, file-based, and independently testable.
+- [x] Design engineering is tokenized, owned, deterministic, and evaluated at motion states.
+- [x] Skill Creator progressive disclosure, discovery, baseline comparison, human review, and trigger optimization are explicit.
+- [x] v1.0.0 release thresholds are numerical and reproducible.
 
 ## Final Self-Review Commands
 

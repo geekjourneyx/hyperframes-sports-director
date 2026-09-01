@@ -10,14 +10,28 @@
   core; retain the boundaries between asset manifests, motion maps, and
   timelines.
 
+## Execution handoff
+
+- Before implementation, read the design specification and the
+  `Execution Status and Remote Resume Point` table in the implementation plan.
+  That table decides which task is next; do not repeat an accepted task.
+- Treat remote `main` and accepted commits as authoritative. Abandoned or
+  uncommitted workspace files are not accepted implementation.
+- Execute one task at a time. Each task must complete its RED, GREEN, full-suite,
+  independent review, and remote checkpoint before the next task begins.
+
 ## Evidence, privacy, and media
 
 - Source footage and recorded activity data are evidence. Generated media may
   support interpretation but must not impersonate footage or invent metrics.
+- Keep recorded-media, activity-data, and design truth chains independent.
+  Agent interpretation may reference but never overwrite deterministic facts.
 - Never modify a user's input directory. Do not commit user footage, GPS,
   biometrics, secrets, large generated media, or evaluation workspaces.
 - Missing activity values are `null` or `status: "unavailable"`, never zero.
   Public route assets require a genuinely trimmed derivative, not a warning.
+- Portable artifacts use basenames or project-relative paths and never expose
+  a user's absolute input path or private filename.
 
 ## Visual production and render quality
 
@@ -32,6 +46,17 @@
   least 3:1.
 - After the delivery transform, each rendered semantic-token color must be
   within Delta E 2000 `<=3` of its declared token.
+
+## Completion semantics
+
+- Analysis, rough cut, final render, final QA, cancellation, and delivery are
+  distinct `PROJECT_STATE.json` states with explicit gate evidence.
+- A final output is delivered only after the closed file re-probes successfully,
+  passes hard gates, and its review evidence comes from the encoded MP4.
+- On cancellation, stop child processes and remove incomplete temporary output.
+  Never treat a plausible filename or process exit code as delivery evidence.
+- When visual inspection is unavailable, report measurable checks without
+  claiming visual acceptance.
 
 ## Development discipline
 
