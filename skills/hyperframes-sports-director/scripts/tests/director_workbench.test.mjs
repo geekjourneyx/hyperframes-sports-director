@@ -47,6 +47,12 @@ async function installApprovalLease(projectRoot, lease, { malformed = false } = 
   return directory;
 }
 
+async function approvalLockSnapshot(lockPath) {
+  const leasePath = join(lockPath, 'lease.json');
+  const [directory, lease, bytes] = await Promise.all([stat(lockPath), stat(leasePath), readFile(leasePath)]);
+  return { directoryInode: directory.ino, leaseInode: lease.ino, bytes };
+}
+
 async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(stamp(value), null, 2)}\n`);
 }
@@ -526,6 +532,42 @@ test('approval recovers only an expired integrity-valid abandoned lease whose ow
   });
   assert.equal(result.approval.selectedCandidateId, 'candidate-a');
   await assert.rejects(() => stat(join(projectRoot, 'cache/director-approval.lock')), { code: 'ENOENT' });
+});
+
+test('approval never reclaims an unexpired lease even when its owner is confirmed dead', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const session = { id: 'session-dead-unexpired', csrfToken: 'csrf-dead-unexpired', expiresAt: '2026-09-01T12:05:00.000Z' };
+  await installSession(projectRoot, session);
+  const lockPath = await installApprovalLease(projectRoot, approvalLease({
+    pid: 99_999_999, createdAt: '2026-09-01T11:59:00.000Z', expiresAt: '2026-09-01T12:01:00.000Z',
+  }));
+  const before = await approvalLockSnapshot(lockPath);
+  await assert.rejects(() => recordDirectorApproval({
+    projectRoot, selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+    workbenchDigest: built.digest, sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+  }), (error) => error.code === 'E_APPROVAL_BUSY');
+  assert.deepEqual(await approvalLockSnapshot(lockPath), before);
+});
+
+test('approval leaves an expired lease byte-identical when owner liveness is indeterminate', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const session = { id: 'session-owner-eperm-01', csrfToken: 'csrf-owner-eperm', expiresAt: '2026-09-01T12:05:00.000Z' };
+  await installSession(projectRoot, session);
+  const lockPath = await installApprovalLease(projectRoot, approvalLease({
+    pid: 99_999_999, createdAt: '2026-09-01T10:00:00.000Z', expiresAt: '2026-09-01T11:00:00.000Z',
+  }));
+  const before = await approvalLockSnapshot(lockPath);
+  await assert.rejects(() => recordDirectorApproval({
+    projectRoot, selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+    workbenchDigest: built.digest, sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+  }, {
+    ownerProbe: () => { throw Object.assign(new Error('permission denied'), { code: 'EPERM' }); },
+  }), (error) => error.code === 'E_APPROVAL_LOCK_UNCONFIRMED');
+  assert.deepEqual(await approvalLockSnapshot(lockPath), before);
 });
 
 test('approval fails closed for expired live, malformed, and unowned leases', async (t) => {

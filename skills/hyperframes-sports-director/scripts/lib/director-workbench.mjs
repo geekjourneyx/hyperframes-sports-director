@@ -428,9 +428,9 @@ async function readApprovalLease(lockPath) {
   }
 }
 
-function ownerProcessStatus(pid) {
+function ownerProcessStatus(pid, ownerProbe) {
   try {
-    process.kill(pid, 0);
+    ownerProbe(pid, 0);
     return 'live';
   } catch (error) {
     if (error.code === 'ESRCH') return 'dead';
@@ -443,11 +443,11 @@ async function restoreClaimOrFail(claimPath, lockPath, code, message) {
   throw new DirectorWorkbenchError(code, message);
 }
 
-async function reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerToken) {
+async function reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerToken, ownerProbe) {
   if (now < Date.parse(observedLease.expiresAt)) {
     throw new DirectorWorkbenchError('E_APPROVAL_BUSY', 'another director approval transaction is active');
   }
-  const ownerStatus = ownerProcessStatus(observedLease.pid);
+  const ownerStatus = ownerProcessStatus(observedLease.pid, ownerProbe);
   if (ownerStatus === 'live') throw new DirectorWorkbenchError('E_APPROVAL_BUSY', 'expired approval lease still has a live owner');
   if (ownerStatus !== 'dead') throw new DirectorWorkbenchError('E_APPROVAL_LOCK_UNCONFIRMED', 'approval lease owner liveness cannot be confirmed');
   const claimPath = `${lockPath}.abandoned-${ownerToken}`;
@@ -466,7 +466,7 @@ async function reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerT
   if (!sameSecret(claimedLease.ownerToken, observedLease.ownerToken)
     || claimedLease.integrity.digest !== observedLease.integrity.digest
     || Date.parse(claimedLease.expiresAt) > now
-    || ownerProcessStatus(claimedLease.pid) !== 'dead') {
+    || ownerProcessStatus(claimedLease.pid, ownerProbe) !== 'dead') {
     return restoreClaimOrFail(claimPath, lockPath, 'E_APPROVAL_LOCK_INVALID', 'claimed approval lease is not the confirmed abandoned owner');
   }
   await rm(claimPath, { recursive: true, force: false });
@@ -497,7 +497,7 @@ async function releaseApprovalLock(lockPath, ownerToken) {
   await rm(claimPath, { recursive: true, force: false });
 }
 
-async function acquireApprovalLock(projectRoot, now, ttlMs = 60_000) {
+async function acquireApprovalLock(projectRoot, now, ownerProbe, ttlMs = 60_000) {
   if (!Number.isFinite(now) || !Number.isFinite(ttlMs) || ttlMs <= 0) {
     throw new DirectorWorkbenchError('E_APPROVAL_LOCK_OPTIONS', 'approval lease requires a valid clock and positive TTL');
   }
@@ -518,12 +518,12 @@ async function acquireApprovalLock(projectRoot, now, ttlMs = 60_000) {
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
       const observedLease = await readApprovalLease(lockPath);
-      if (!await reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerToken)) continue;
+      if (!await reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerToken, ownerProbe)) continue;
     }
   }
 }
 
-export async function recordDirectorApproval(request = {}) {
+export async function recordDirectorApproval(request = {}, dependencies = {}) {
   const { projectRoot } = request;
   if (!projectRoot || !/^session-[0-9a-z-]{12,80}$/.test(request.sessionId ?? '') || typeof request.csrfToken !== 'string') {
     throw new DirectorWorkbenchError('E_SESSION_REQUIRED', 'exact session and CSRF tokens are required');
@@ -539,7 +539,9 @@ export async function recordDirectorApproval(request = {}) {
   }
   const now = Date.parse((request.now ?? (() => new Date().toISOString()))());
   if (!Number.isFinite(now) || now >= Date.parse(session.expiresAt)) throw new DirectorWorkbenchError('E_SESSION_EXPIRED', 'director session expired');
-  const releaseApprovalLock = await acquireApprovalLock(projectRoot, now);
+  const ownerProbe = dependencies.ownerProbe ?? process.kill.bind(process);
+  if (typeof ownerProbe !== 'function') throw new DirectorWorkbenchError('E_APPROVAL_LOCK_OPTIONS', 'approval owner probe must be callable');
+  const releaseApprovalLock = await acquireApprovalLock(projectRoot, now, ownerProbe);
   try {
     const state = JSON.parse(await readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8'));
     if (state.state !== 'DIRECTOR_REVIEW_READY') throw new DirectorWorkbenchError('E_APPROVAL_STATE', 'approval is available only in DIRECTOR_REVIEW_READY');
