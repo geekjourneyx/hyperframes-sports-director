@@ -21,8 +21,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 1 — lineage and scaffold | Complete | `e9a88afc33d074179b569e6d84802d127ed555ed` | Inspect only; do not recreate. |
 | 2 — no-Skill baselines and executable rubric | Complete | `2e7101fcd52d14ccf5d4eb98d886e930560932b3` | Baseline outputs are immutable test evidence. |
 | 3 — versioned contracts and lifecycle | Complete | `3a29147f7f7324ccfc606d932cfcf3939c05ebb2` | Contract, lifecycle, integrity, and portability primitives are accepted; do not recreate. |
-| 4 — declarative sport/device/delivery profiles | Next | — | Start from current remote `main`; no Task 4 implementation has been accepted remotely. |
-| 5–19 | Pending | — | Execute in order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 4 — declarative sport/device/delivery profiles | Complete | `46a65484f9b61d2bac40a70e624b7734dae065ea` | Profile contracts, maturity boundaries, and deterministic policy composition are accepted; do not recreate. |
+| 5 — project creation, state transitions, and capabilities | Next | — | Start from current remote `main`; no Task 5 implementation has been accepted remotely. |
+| 6–19 | Pending | — | Execute in order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 

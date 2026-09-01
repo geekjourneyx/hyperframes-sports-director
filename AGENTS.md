@@ -22,7 +22,8 @@
   uncommitted workspace files are not accepted implementation.
 - Execute one task at a time. Each task must complete its RED, GREEN, full-suite,
   independent review, and remote checkpoint before the next task begins.
-- The recalibrated Task 3 remains the next task. Tasks 10–11 prove the local
+- The execution-status table remains the sole next-task authority; do not
+  hard-code a stale task number here. Tasks 10–11 prove the local
   director-workbench approval and transactional design lock before production
   Image Gen work begins; do not collapse those gates into the asset task.
 
