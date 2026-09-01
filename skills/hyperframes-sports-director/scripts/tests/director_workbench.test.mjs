@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -40,6 +40,11 @@ function requestStatus(url, headers = {}) {
     request.once('error', reject);
     request.end();
   });
+}
+
+async function responseBytes(url) {
+  const response = await fetch(url);
+  return { response, bytes: Buffer.from(await response.arrayBuffer()) };
 }
 
 function stamp(value) {
@@ -674,6 +679,63 @@ test('HTTP workbench authenticates every session route and expires with exact cl
   ]);
   await assert.rejects(() => stat(auto.sessionDir), { code: 'ENOENT' });
   await assert.rejects(() => fetch(auto.url));
+});
+
+test('HTTP workbench freezes verified bundle responses and fails closed after post-start disk mutation', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const paths = [model.stylesheetPath, model.scriptPath, model.proposals.candidates[0].layoutProofs[0]];
+  const originals = new Map(await Promise.all(paths.map(async (path) => [path, await readFile(join(projectRoot, path))])));
+  const server = await startWorkbenchServer({ projectRoot, port: 0, ttlMs: 60_000, now: () => Date.parse(NOW) });
+  t.after(() => server.close());
+
+  const initialPage = await responseBytes(server.url);
+  assert.equal(initialPage.response.status, 200);
+  for (const path of paths) {
+    const { response, bytes } = await responseBytes(new URL(path.slice('review/'.length), server.url));
+    assert.equal(response.status, 200);
+    assert.deepEqual(bytes, originals.get(path), path);
+  }
+
+  await Promise.all([
+    writeFile(join(projectRoot, built.path), '<script>attacker-html</script>'),
+    writeFile(join(projectRoot, model.stylesheetPath), 'attacker-css'),
+    writeFile(join(projectRoot, model.scriptPath), 'attacker-js'),
+    writeFile(join(projectRoot, model.proposals.candidates[0].layoutProofs[0]), '<svg><script>attacker-svg</script></svg>'),
+  ]);
+  const laterPage = await responseBytes(server.url);
+  assert.deepEqual(laterPage.bytes, initialPage.bytes, 'session-injected HTML is frozen per session');
+  assert.equal(laterPage.bytes.includes(Buffer.from('attacker-html')), false);
+  for (const path of paths) {
+    const { bytes } = await responseBytes(new URL(path.slice('review/'.length), server.url));
+    assert.deepEqual(bytes, originals.get(path), `GET never serves post-start disk bytes: ${path}`);
+  }
+
+  const approval = await fetch(new URL('approval', server.url), {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+      workbenchDigest: built.digest, sessionId: server.sessionId, csrfToken: server.csrfToken,
+    }),
+  });
+  assert.equal(approval.status, 400, 'approval must not accept digests after canonical evidence becomes stale');
+  await assert.rejects(() => stat(join(projectRoot, 'direction/DIRECTOR_APPROVAL.json')), { code: 'ENOENT' });
+});
+
+test('HTTP workbench removes only its new session when a real occupied port rejects listen', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const live = { id: 'session-unrelated-live-port', csrfToken: 'csrf-unrelated-live-port', expiresAt: '2026-09-01T13:00:00.000Z' };
+  await installSession(projectRoot, live);
+  const blocker = createServer();
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => blocker.close(resolve)));
+  const { port } = blocker.address();
+
+  await assert.rejects(() => startWorkbenchServer({ projectRoot, port, ttlMs: 60_000, now: () => Date.parse(NOW) }),
+    (error) => error.code === 'EADDRINUSE');
+  const sessions = await readdir(join(projectRoot, 'cache/director-workbench-sessions'));
+  assert.deepEqual(sessions, [live.id]);
+  assert.equal((await stat(join(projectRoot, 'cache/director-workbench-sessions', live.id))).isDirectory(), true);
 });
 
 test('approval uses one project-scoped exclusive transaction across revalidation and atomic write', async (t) => {

@@ -669,12 +669,45 @@ async function readPersistedHttpSession(sessionDir, expected) {
   }
 }
 
+function declaredBundleDigest(path) {
+  const match = basename(path).match(/-([a-f0-9]{64})\.[a-z0-9]+$/i);
+  if (!match) throw new DirectorWorkbenchError('E_SERVE_BUNDLE_NAME', 'served bundle asset has no declared digest');
+  return match[1].toLowerCase();
+}
+
+async function freezeVerifiedBytes(path, expectedDigest) {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+    const [metadata, bytes] = await Promise.all([handle.stat(), handle.readFile()]);
+    if (!metadata.isFile() || sha(bytes) !== expectedDigest) {
+      throw new DirectorWorkbenchError('E_SERVE_BUNDLE_STALE', 'served bundle bytes do not match their declared digest');
+    }
+    return bytes;
+  } finally {
+    await handle?.close();
+  }
+}
+
 export async function startWorkbenchServer(options = {}) {
   const host = options.host ?? '127.0.0.1';
   if (!['127.0.0.1', 'localhost'].includes(host)) throw new DirectorWorkbenchError('E_BIND_LOCALHOST', 'director workbench binds only to localhost');
   const projectRoot = options.projectRoot;
   const built = await buildDirectorWorkbench(projectRoot);
   const model = await buildWorkbenchModel(projectRoot);
+  if (sha(renderWorkbenchHtml(model)) !== built.digest) {
+    throw new DirectorWorkbenchError('E_SERVE_WORKBENCH_STALE', 'workbench changed before immutable HTTP publication');
+  }
+  const allow = new Map();
+  for (const path of [model.stylesheetPath, model.scriptPath, model.roughCut.path]
+    .concat(model.keyFrames.map(({ path }) => path), model.proposals.candidates.flatMap((candidate) => [...candidate.layoutProofs, ...candidate.motionStoryboard]))) {
+    const absolutePath = projectPath(projectRoot, path);
+    allow.set(`/${reviewUrl(path)}`, {
+      body: await freezeVerifiedBytes(absolutePath, declaredBundleDigest(absolutePath)),
+      contentType: MIME.get(extname(absolutePath)) ?? 'application/octet-stream',
+    });
+  }
+  const canonicalHtml = await freezeVerifiedBytes(projectPath(projectRoot, built.path), built.digest);
   const issuedAt = Number((options.now ?? Date.now)());
   const ttlMs = options.ttlMs ?? 15 * 60_000;
   if (!Number.isFinite(issuedAt) || !Number.isFinite(ttlMs) || ttlMs <= 0) throw new DirectorWorkbenchError('E_SESSION_EXPIRY', 'valid session clock and positive expiry are required');
@@ -695,13 +728,7 @@ export async function startWorkbenchServer(options = {}) {
   persistedSession.integrity.digest = computeArtifactDigest(persistedSession);
   await writeAtomic(join(sessionDir, 'session.json'), `${JSON.stringify(persistedSession)}\n`, 0o600);
 
-  const allow = new Map();
-  for (const path of [model.stylesheetPath, model.scriptPath, model.roughCut.path]
-    .concat(model.keyFrames.map(({ path }) => path), model.proposals.candidates.flatMap((candidate) => [...candidate.layoutProofs, ...candidate.motionStoryboard]))) {
-    allow.set(`/${reviewUrl(path)}`, projectPath(projectRoot, path));
-  }
-  const canonicalHtml = await readFile(projectPath(projectRoot, built.path), 'utf8');
-  const servedHtml = canonicalHtml
+  const servedHtml = canonicalHtml.toString('utf8')
     .replace('__HF_SESSION_ID__', session.id)
     .replace('__HF_CSRF_TOKEN__', session.csrfToken)
     .replace('__HF_WORKBENCH_DIGEST__', built.digest);
@@ -742,8 +769,8 @@ export async function startWorkbenchServer(options = {}) {
         return;
       }
       if (request.method === 'GET' && allow.has(route)) {
-        const path = allow.get(route);
-        send(response, 200, await readFile(path), MIME.get(extname(path)) ?? 'application/octet-stream');
+        const frozen = allow.get(route);
+        send(response, 200, frozen.body, frozen.contentType);
         return;
       }
       if (request.method === 'POST' && route === '/approval') {
@@ -757,10 +784,15 @@ export async function startWorkbenchServer(options = {}) {
       send(response, error.statusCode ?? 400, JSON.stringify({ ok: false, code: error.code ?? 'E_REQUEST', message: error.message }));
     }
   });
-  await new Promise((resolvePromise, reject) => {
-    server.once('error', reject);
-    server.listen(options.port ?? 0, '127.0.0.1', resolvePromise);
-  });
+  try {
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(options.port ?? 0, '127.0.0.1', resolvePromise);
+    });
+  } catch (error) {
+    await close();
+    throw error;
+  }
   const address = server.address();
   expectedHost = `127.0.0.1:${address.port}`;
   expiryTimer = setTimeout(() => { void close(); }, ttlMs);
