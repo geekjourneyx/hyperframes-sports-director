@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { errorResult, parseCliArguments } from './lib/cli.mjs';
 import { loadSchema, validateArtifact, validateDocument, verifyArtifactIntegrity } from './lib/contracts.mjs';
+import { assertImageDecodes, ffprobeJson } from './lib/ffmpeg.mjs';
 import { projectPath } from './lib/media.mjs';
 
 function shotFilePath(project, requested) {
@@ -23,6 +24,20 @@ function parseOneEnvelope(text) {
 
 function invalid(code, message, details = {}) {
   const error = new Error(message); error.code = code; Object.assign(error, details); return error;
+}
+
+async function assertEvidenceImage(project, portablePath) {
+  try {
+    const path = projectPath(project, portablePath);
+    const probe = await ffprobeJson(path);
+    const isWebp = probe.format?.format_name?.split(',').some((name) => name.startsWith('webp'));
+    const streams = probe.streams ?? [];
+    if (!isWebp || streams.length !== 1 || streams[0].codec_type !== 'video') throw new Error('evidence is not a WebP image');
+    await assertImageDecodes(path);
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 export async function validateShots({ project: projectRoot, shots: requestedShots }) {
@@ -62,9 +77,21 @@ export async function validateShots({ project: projectRoot, shots: requestedShot
     }
     if (shot.sourceDigest !== source.sourceDigest || shot.sourceDigest !== segment.sourceDigest) errors.push({ code: 'E_SHOT_SOURCE_DIGEST', path: `${prefix}/sourceDigest`, message: 'shot sourceDigest must match PROBE and SEGMENTS', schema: 'shot' });
     if (shot.sourceDurationSeconds !== segment.sourceDurationSeconds || shot.sourceInSeconds < segment.sourceInSeconds || shot.sourceOutSeconds > segment.sourceOutSeconds) errors.push({ code: 'E_SHOT_SEGMENT_BOUNDS', path: prefix, message: 'shot interval must remain within its segment and use its exact source duration', schema: 'shot' });
-    const allowedEvidence = new Set(segment.evidenceFrames.map(({ path }) => path));
-    for (const frame of shot.evidenceFrames) {
-      if (!allowedEvidence.has(frame)) errors.push({ code: 'E_SHOT_EVIDENCE_REFERENCE', path: `${prefix}/evidenceFrames`, message: 'shot evidence must be extracted by its referenced segment', schema: 'shot' });
+    const evidenceByPath = new Map(segment.evidenceFrames.map((frame) => [frame.path, frame]));
+    for (let evidenceIndex = 0; evidenceIndex < shot.evidenceFrames.length; evidenceIndex += 1) {
+      const framePath = shot.evidenceFrames[evidenceIndex];
+      const frame = evidenceByPath.get(framePath);
+      const framePathPrefix = `${prefix}/evidenceFrames/${evidenceIndex}`;
+      if (!frame) {
+        errors.push({ code: 'E_SHOT_EVIDENCE_REFERENCE', path: framePathPrefix, message: 'shot evidence must be extracted by its referenced segment', schema: 'shot' });
+        continue;
+      }
+      if (frame.sourceTimeSeconds < shot.sourceInSeconds || frame.sourceTimeSeconds > shot.sourceOutSeconds) {
+        errors.push({ code: 'E_SHOT_EVIDENCE_TIME', path: framePathPrefix, message: 'shot evidence time must remain within the shot interval', schema: 'shot' });
+      }
+      if (!(await assertEvidenceImage(project, framePath))) {
+        errors.push({ code: 'E_SHOT_EVIDENCE_IMAGE', path: framePathPrefix, message: 'shot evidence must exist as a decodable WebP image inside the project', schema: 'shot' });
+      }
     }
   }
   return { valid: errors.length === 0, errors, value, segments, artifact: 'analysis/SHOTS.jsonl' };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,4 +106,82 @@ test('validate_shots rejects an integrity-valid segment that exceeds its probed 
   const result = await run(process.execPath, [join(SKILL, 'scripts', 'validate_shots.mjs'), '--project', project, '--shots', shotsPath]);
   assert.equal(result.code, 1, result.stderr || result.stdout);
   assert.equal(JSON.parse(result.stdout).valid, false);
+});
+
+test('validate_shots requires low confidence when any declared semantic field is exactly unknown', async () => {
+  const { project } = await fixture();
+  const segments = JSON.parse(await readFile(join(project, 'analysis', 'SEGMENTS.json'), 'utf8'));
+  const mutations = [
+    (shot) => { shot.cameraRole = 'unknown'; },
+    (shot) => { shot.actionRole = 'unknown'; },
+    (shot) => { shot.quality.blur = 'unknown'; },
+    (shot) => { shot.continuity.motionDirection = 'unknown'; },
+    (shot) => { shot.continuity.location = 'unknown'; },
+    (shot) => { shot.environmentTags = ['unknown']; },
+    (shot) => { shot.subjectTags = ['unknown']; },
+    (shot) => { shot.audioSpans[0].kind = 'unknown'; },
+  ];
+  for (const mutate of mutations) {
+    const value = agentEnvelope(segments);
+    value.shots[0].cameraRole = 'wide';
+    value.shots[0].actionRole = 'move';
+    value.shots[0].quality = { motionIntensity: 'medium', blur: 'none', shake: 'minor', exposure: 'good', horizon: 'level', occlusion: 'none' };
+    value.shots[0].continuity = { screenDirection: 'static', motionDirection: 'static', subjectEntry: 'none', subjectExit: 'none', location: 'known route', timeRelation: 'continuous' };
+    value.shots[0].environmentTags = ['road'];
+    value.shots[0].subjectTags = ['rider'];
+    value.shots[0].audioSpans[0].kind = 'ambient';
+    value.shots[0].confidence = 0.9;
+    mutate(value.shots[0]);
+    value.integrity.digest = computeArtifactDigest(value);
+    const shotsPath = join(project, 'analysis', 'SHOTS.jsonl');
+    await writeFile(shotsPath, `${JSON.stringify(value)}\n`);
+    const result = await run(process.execPath, [join(SKILL, 'scripts', 'validate_shots.mjs'), '--project', project, '--shots', shotsPath]);
+    assert.equal(result.code, 1, result.stderr || result.stdout);
+    assert.equal(JSON.parse(result.stdout).valid, false);
+  }
+
+  const literal = agentEnvelope(segments);
+  literal.shots[0].cameraRole = 'wide';
+  literal.shots[0].actionRole = 'move';
+  literal.shots[0].quality = { motionIntensity: 'medium', blur: 'none', shake: 'minor', exposure: 'good', horizon: 'level', occlusion: 'none' };
+  literal.shots[0].continuity = { screenDirection: 'static', motionDirection: 'static', subjectEntry: 'none', subjectExit: 'none', location: 'unknown terrain landmark', timeRelation: 'continuous' };
+  literal.shots[0].environmentTags = ['unknownish-road'];
+  literal.shots[0].subjectTags = ['rider'];
+  literal.shots[0].confidence = 0.9;
+  literal.integrity.digest = computeArtifactDigest(literal);
+  const literalPath = join(project, 'analysis', 'SHOTS.jsonl');
+  await writeFile(literalPath, `${JSON.stringify(literal)}\n`);
+  const literalResult = await run(process.execPath, [join(SKILL, 'scripts', 'validate_shots.mjs'), '--project', project, '--shots', literalPath]);
+  assert.equal(literalResult.code, 0, literalResult.stderr || literalResult.stdout);
+});
+
+test('validate_shots requires each segment evidence entity to be in-shot, present, and decodable', async () => {
+  const { project } = await fixture();
+  const segments = JSON.parse(await readFile(join(project, 'analysis', 'SEGMENTS.json'), 'utf8'));
+  const timing = agentEnvelope(segments);
+  const segment = segments.segments.find(({ segmentId }) => segmentId === timing.shots[0].segmentId);
+  timing.shots[0].sourceInSeconds = segment.evidenceFrames[0].sourceTimeSeconds + 0.1;
+  timing.shots[0].audioSpans[0].sourceInSeconds = timing.shots[0].sourceInSeconds;
+  timing.integrity.digest = computeArtifactDigest(timing);
+  const shotsPath = join(project, 'analysis', 'SHOTS.jsonl');
+  await writeFile(shotsPath, `${JSON.stringify(timing)}\n`);
+  const timingResult = await run(process.execPath, [join(SKILL, 'scripts', 'validate_shots.mjs'), '--project', project, '--shots', shotsPath]);
+  assert.equal(timingResult.code, 1, timingResult.stderr || timingResult.stdout);
+  assert.equal(JSON.parse(timingResult.stdout).valid, false);
+
+  for (const corrupt of [
+    async (path) => rm(path),
+    async (path) => writeFile(path, 'not an image'),
+  ]) {
+    const isolated = await fixture();
+    const isolatedSegments = JSON.parse(await readFile(join(isolated.project, 'analysis', 'SEGMENTS.json'), 'utf8'));
+    const value = agentEnvelope(isolatedSegments);
+    const evidencePath = join(isolated.project, value.shots[0].evidenceFrames[0]);
+    await corrupt(evidencePath);
+    const isolatedShotsPath = join(isolated.project, 'analysis', 'SHOTS.jsonl');
+    await writeFile(isolatedShotsPath, `${JSON.stringify(value)}\n`);
+    const result = await run(process.execPath, [join(SKILL, 'scripts', 'validate_shots.mjs'), '--project', isolated.project, '--shots', isolatedShotsPath]);
+    assert.equal(result.code, 1, result.stderr || result.stdout);
+    assert.equal(JSON.parse(result.stdout).valid, false);
+  }
 });

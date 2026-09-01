@@ -84,6 +84,18 @@ function checkBounds(entries, path, schema, errors) {
   }
 }
 
+function hasUnknownShotSemantic(shot) {
+  return [
+    shot.cameraRole,
+    shot.actionRole,
+    ...Object.values(shot.quality),
+    ...Object.values(shot.continuity),
+    ...shot.environmentTags,
+    ...shot.subjectTags,
+    ...shot.audioSpans.map(({ kind }) => kind),
+  ].some((value) => value === 'unknown');
+}
+
 function checkLifecycle(value, schema, errors) {
   const statuses = value.lifecycle.map((entry) => entry.status);
   const prefix = LIFECYCLE.slice(0, statuses.length);
@@ -344,7 +356,7 @@ function semanticErrors(schema, value) {
           addSemantic(errors, schema, 'E_AUDIO_SPAN_BOUNDS', `/shots/${index}/audioSpans/${audioIndex}`, 'audio spans must remain within the shot interval');
         }
       }
-      if ((shot.cameraRole === 'unknown' || shot.actionRole === 'unknown') && shot.confidence > 0.49) {
+      if (hasUnknownShotSemantic(shot) && shot.confidence > 0.49) {
         addSemantic(errors, schema, 'E_UNKNOWN_CONFIDENCE', `/shots/${index}/confidence`, 'unknown semantic roles require low confidence');
       }
     }
