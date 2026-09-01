@@ -79,29 +79,152 @@ function assertIdDerivedPrototypePaths(candidate) {
   }
 }
 
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const SVG_GLOBAL_ATTRIBUTES = new Set([
+  'id', 'transform', 'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity',
+  'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset',
+  'opacity', 'clip-path', 'mask', 'font-family', 'font-size', 'font-weight', 'letter-spacing',
+  'text-anchor', 'dominant-baseline', 'vector-effect', 'shape-rendering', 'text-rendering',
+]);
+const SVG_ELEMENTS = new Map(Object.entries({
+  svg: ['xmlns', 'viewBox', 'width', 'height', 'preserveAspectRatio'],
+  g: [], defs: [], title: [], desc: [],
+  rect: ['x', 'y', 'width', 'height', 'rx', 'ry'],
+  circle: ['cx', 'cy', 'r'], ellipse: ['cx', 'cy', 'rx', 'ry'],
+  line: ['x1', 'y1', 'x2', 'y2'], polyline: ['points'], polygon: ['points'],
+  path: ['d', 'pathLength'], text: ['x', 'y', 'dx', 'dy'], tspan: ['x', 'y', 'dx', 'dy'],
+  linearGradient: ['x1', 'y1', 'x2', 'y2', 'gradientUnits', 'gradientTransform', 'spreadMethod'],
+  radialGradient: ['cx', 'cy', 'r', 'fx', 'fy', 'fr', 'gradientUnits', 'gradientTransform', 'spreadMethod'],
+  stop: ['offset', 'stop-color', 'stop-opacity'],
+  clipPath: ['clipPathUnits'], mask: ['x', 'y', 'width', 'height', 'maskUnits', 'maskContentUnits'],
+}).map(([element, attributes]) => [element, new Set([...SVG_GLOBAL_ATTRIBUTES, ...attributes])]));
+const SVG_TEXT_ELEMENTS = new Set(['text', 'tspan', 'title', 'desc']);
+const SVG_LOCAL_REFERENCE_ATTRIBUTES = new Set(['fill', 'stroke', 'clip-path', 'mask']);
+const SVG_SAFE_ATTRIBUTE_VALUE = /^[A-Za-z0-9#.,%+() _-]+$/;
+const SVG_SAFE_ID = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+
+function activePrototype(message) {
+  return new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', message);
+}
+
+function readSvgTag(text, start) {
+  let quote = null;
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '<') {
+      throw activePrototype('prototype SVG contains malformed XML');
+    } else if (character === '>') {
+      return { source: text.slice(start + 1, index), end: index + 1 };
+    }
+  }
+  throw activePrototype('prototype SVG contains an unterminated tag');
+}
+
+function parseSvgAttributes(source, element) {
+  const allowed = SVG_ELEMENTS.get(element);
+  const attributes = new Map();
+  let cursor = 0;
+  while (cursor < source.length) {
+    const whitespace = source.slice(cursor).match(/^\s+/);
+    if (!whitespace) throw activePrototype('prototype SVG attributes must be whitespace-separated');
+    cursor += whitespace[0].length;
+    if (cursor === source.length) break;
+    const nameMatch = source.slice(cursor).match(/^[A-Za-z][A-Za-z0-9-]*/);
+    if (!nameMatch) throw activePrototype('prototype SVG contains a namespaced or malformed attribute');
+    const name = nameMatch[0];
+    cursor += name.length;
+    const beforeEquals = source.slice(cursor).match(/^\s*/)[0];
+    cursor += beforeEquals.length;
+    if (source[cursor] !== '=') throw activePrototype('prototype SVG attributes require quoted values');
+    cursor += 1;
+    const afterEquals = source.slice(cursor).match(/^\s*/)[0];
+    cursor += afterEquals.length;
+    const quote = source[cursor];
+    if (quote !== '"' && quote !== "'") throw activePrototype('prototype SVG attributes require quoted values');
+    const end = source.indexOf(quote, cursor + 1);
+    if (end === -1) throw activePrototype('prototype SVG contains an unterminated attribute');
+    const value = source.slice(cursor + 1, end);
+    cursor = end + 1;
+    if (!allowed.has(name) || /^on/i.test(name) || attributes.has(name)) {
+      throw activePrototype('prototype SVG contains an unknown, active, or duplicate attribute');
+    }
+    if (name === 'xmlns') {
+      if (element !== 'svg' || value !== SVG_NAMESPACE) throw activePrototype('prototype SVG namespace is invalid');
+    } else if (name === 'id') {
+      if (!SVG_SAFE_ID.test(value)) throw activePrototype('prototype SVG ID is invalid');
+    } else {
+      const localReference = SVG_LOCAL_REFERENCE_ATTRIBUTES.has(name) && /^url\(#[A-Za-z_][A-Za-z0-9_.-]*\)$/.test(value);
+      if (!localReference && (!SVG_SAFE_ATTRIBUTE_VALUE.test(value) || /(?:url|data|javascript|@import|font-face)/i.test(value))) {
+        throw activePrototype('prototype SVG attribute value is outside the inert subset');
+      }
+    }
+    attributes.set(name, value);
+  }
+  return attributes;
+}
+
 function assertInertSvg(bytes) {
   let text;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG must be valid UTF-8');
+    throw activePrototype('prototype SVG must be valid UTF-8');
   }
-  if (!/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(text)
-    || /<\s*script\b|\son[a-z0-9_:-]+\s*=|<\s*foreignObject\b|<\s*(?:iframe|object|embed|audio|video|source)\b/i.test(text)
-    || /(?:@import|@font-face|<\s*font-face\b|data\s*:)/i.test(text)) {
-    throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG contains active, embedded, or remote-capable content');
+  if (!text || /[\\&]|<\!|<\?|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
+    throw activePrototype('prototype SVG contains declarations, entities, escapes, or invalid characters');
   }
-  for (const match of text.matchAll(/(?:^|\s)(?:xlink:)?(?:href|src)\s*=\s*(["'])(.*?)\1/gis)) {
-    if (!match[2].trim().startsWith('#')) {
-      throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG contains an external href or src');
+
+  const stack = [];
+  let rootSeen = false;
+  let rootClosed = false;
+  let cursor = 0;
+  while (cursor < text.length) {
+    if (text[cursor] !== '<') {
+      const next = text.indexOf('<', cursor);
+      const end = next === -1 ? text.length : next;
+      const content = text.slice(cursor, end);
+      if (content.trim() && (!stack.length || !SVG_TEXT_ELEMENTS.has(stack.at(-1)))) {
+        throw activePrototype('prototype SVG text is outside an allowed text element');
+      }
+      cursor = end;
+      continue;
     }
-  }
-  for (const match of text.matchAll(/url\s*\(\s*([^)]*?)\s*\)/gis)) {
-    const reference = match[1].trim().replace(/^(["'])(.*)\1$/, '$2').trim();
-    if (!reference.startsWith('#')) {
-      throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG contains an external CSS URL');
+
+    const tag = readSvgTag(text, cursor);
+    cursor = tag.end;
+    if (tag.source.startsWith('/')) {
+      const match = tag.source.match(/^\/([A-Za-z][A-Za-z0-9]*)\s*$/);
+      if (!match || stack.at(-1) !== match[1]) throw activePrototype('prototype SVG tags are malformed or unbalanced');
+      stack.pop();
+      if (!stack.length) rootClosed = true;
+      continue;
     }
+
+    const selfClosing = /\/\s*$/.test(tag.source);
+    const source = selfClosing ? tag.source.replace(/\/\s*$/, '') : tag.source;
+    const match = source.match(/^([A-Za-z][A-Za-z0-9]*)([\s\S]*)$/);
+    const element = match?.[1];
+    if (!element || !SVG_ELEMENTS.has(element) || rootClosed) {
+      throw activePrototype('prototype SVG contains an unknown, namespaced, or extra element');
+    }
+    if (!rootSeen) {
+      if (element !== 'svg' || stack.length) throw activePrototype('prototype SVG requires one SVG root');
+      rootSeen = true;
+    } else if (!stack.length) {
+      throw activePrototype('prototype SVG contains more than one root');
+    }
+    const attributes = parseSvgAttributes(match[2], element);
+    if (element === 'svg' && (!attributes.has('xmlns') || stack.length)) {
+      throw activePrototype('prototype SVG root requires the exact SVG namespace');
+    }
+    if (!selfClosing) stack.push(element);
+    else if (element === 'svg') rootClosed = true;
   }
+  if (!rootSeen || !rootClosed || stack.length) throw activePrototype('prototype SVG document is incomplete');
 }
 
 function assertIdDerivedEvidencePaths(segments, shots) {

@@ -442,6 +442,47 @@ test('proposal compiler accepts only inert local SVG prototypes and rejects acti
   }
 });
 
+test('proposal compiler rejects structural SVG bypasses and malformed XML', async (t) => {
+  const variants = [
+    ['prefixed script', '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg"><s:script>alert(1)</s:script></svg>'],
+    ['prefixed event attribute', '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="urn:x"><rect s:onclick="alert(1)"/></svg>'],
+    ['CSS escape', '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:u\\72l(https://example.com/a.svg)"/></svg>'],
+    ['style element', '<svg xmlns="http://www.w3.org/2000/svg"><style>rect{fill:red}</style></svg>'],
+    ['unknown element', '<svg xmlns="http://www.w3.org/2000/svg"><a><text>link</text></a></svg>'],
+    ['unknown attribute', '<svg xmlns="http://www.w3.org/2000/svg"><rect mystery="value"/></svg>'],
+    ['doctype entity', '<!DOCTYPE svg [<!ENTITY payload SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg"><text>&payload;</text></svg>'],
+    ['processing instruction', '<?xml-stylesheet href="https://example.com/a.css"?><svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>'],
+    ['obfuscated element', '<svg xmlns="http://www.w3.org/2000/svg"><s&#x63;ript>alert(1)</s&#x63;ript></svg>'],
+    ['obfuscated URL', '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="java&#x73;cript:alert(1)"/></svg>'],
+    ['unbalanced XML', '<svg xmlns="http://www.w3.org/2000/svg"><g><rect/></svg>'],
+    ['trailing document', '<svg xmlns="http://www.w3.org/2000/svg"></svg><svg xmlns="http://www.w3.org/2000/svg"></svg>'],
+  ];
+  for (const [name, bytes] of variants) {
+    const { projectRoot, candidates } = await fixture(t);
+    const path = candidates[0].layoutProofs[0];
+    candidates[0].previewArtifactDigests[path] = sha(bytes);
+    await writeFile(join(projectRoot, path), bytes);
+    await assert.rejects(
+      () => compileDirectionProposals({ projectRoot, candidates }),
+      (error) => error.code === 'E_PROTOTYPE_ACTIVE_CONTENT',
+      name,
+    );
+  }
+});
+
+test('proposal compiler accepts the strict code-rendered SVG subset', async (t) => {
+  const { projectRoot, candidates } = await fixture(t);
+  const safe = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080"><defs><linearGradient id="signal" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C9A86A"/><stop offset="100%" stop-color="#F5F2EA"/></linearGradient></defs><g opacity="0.9" transform="translate(24 24)"><rect id="panel" x="0" y="0" width="1872" height="1032" rx="24" fill="url(#signal)"/><path d="M 80 900 L 960 180 L 1840 900" fill="none" stroke="#050505" stroke-width="12"/><text x="80" y="980" fill="#050505" font-size="64" font-weight="700">Direction 01</text></g></svg>';
+  for (const candidate of candidates) {
+    for (const path of [...candidate.layoutProofs, ...candidate.motionStoryboard]) {
+      candidate.previewArtifactDigests[path] = sha(safe);
+      await writeFile(join(projectRoot, path), safe);
+    }
+  }
+  const result = await compileDirectionProposals({ projectRoot, candidates });
+  assert.equal(result.candidates.length, 2);
+});
+
 test('workbench is a deterministic escaped evidence view with isolated candidates and one dominant director canvas', async (t) => {
   const { projectRoot, artifact } = await compileAndReady(t);
   const first = await buildWorkbenchModel(projectRoot);
