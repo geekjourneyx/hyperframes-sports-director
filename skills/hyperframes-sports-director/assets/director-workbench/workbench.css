@@ -4,6 +4,8 @@
 html { min-width: 1080px; background: var(--hf-background); color: var(--hf-text-primary); }
 body { margin: 0; min-height: 100vh; background: var(--hf-background); color: var(--hf-text-primary); font-family: "HF Ledger", monospace; font-size: 14px; }
 button, input { font: inherit; }
+a, button { min-height: 44px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--hf-accent); outline-offset: 3px; }
 .workbench-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(760px, 1fr) 340px; }
 .director-deck { min-width: 0; border-right: 1px solid var(--hf-line); }
 .production-rail { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 24px; background: var(--hf-surface); }
@@ -70,9 +72,10 @@ button, input { font: inherit; }
 .rail-section { padding: 20px 0; border-top: 1px solid var(--hf-line); }
 .rail-section h3 { margin: 0 0 12px; color: var(--hf-accent); font-size: 12px; letter-spacing: .15em; text-transform: uppercase; }
 .rail-list { margin: 0; padding-left: 16px; color: var(--hf-text-secondary); font-size: 14px; line-height: 1.7; }
-.approval-zone { padding: 22px 0 8px; border-top: 1px solid var(--hf-line); }
+.approval-zone { padding: 22px 0 24px; border-top: 1px solid var(--hf-line); }
+.approval-zone h2 { margin-top: 8px; }
 .approval-zone p { color: var(--hf-text-secondary); font: italic 14px/1.5 "HF Editorial", serif; }
-.approve-button { width: 100%; padding: 15px; border: 1px solid var(--hf-accent); background: var(--hf-accent); color: var(--hf-background); cursor: pointer; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+.approve-button { width: 100%; min-height: 48px; padding: 15px; border: 1px solid var(--hf-accent); background: var(--hf-accent); color: var(--hf-background); cursor: pointer; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
 .approve-button:disabled { cursor: not-allowed; opacity: .45; }
 .approval-result { min-height: 16px; margin-top: 10px; color: var(--hf-danger); font-size: 12px; }
 @media (min-width: 2200px) {

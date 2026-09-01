@@ -19,3 +19,11 @@ test('workbench visual contract keeps readable type, fixed chrome, and a centere
   assert.match(css, /\.candidate-filmstrip\s*\{/, 'the filmstrip remains part of the director workbench');
   assert.match(css, /\.direction-stage\.is-active\s*\{/, 'the director stage remains the dominant canvas');
 });
+
+test('workbench interaction contract keeps every control reachable and gives the approval decision priority', async () => {
+  const css = await readFile(CSS, 'utf8');
+  assert.match(css, /a, button\s*\{[^}]*min-height:\s*44px;/s);
+  assert.match(css, /\.approve-button\s*\{[^}]*min-height:\s*48px;/s);
+  assert.match(css, /a:focus-visible, button:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--hf-accent\);/s);
+  assert.match(css, /\.approval-zone\s*\{[^}]*padding:/s);
+});

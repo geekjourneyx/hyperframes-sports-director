@@ -477,6 +477,17 @@ test('candidate selection reveals only the matching server-rendered detail and n
   assert.equal(fixture.label.textContent, 'MONUMENTAL QUIET');
 });
 
+test('approval is a first-screen decision after the progress and brief, before candidate production detail', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const html = renderWorkbenchHtml(await buildWorkbenchModel(projectRoot));
+  const approval = html.indexOf('<section class="approval-zone">');
+  assert.ok(approval > html.indexOf('<section class="rail-section"><h3>BRIEF</h3>'));
+  assert.ok(approval < html.indexOf('candidate-rail-detail is-active'));
+  assert.match(html.slice(approval), /<h2 data-selected-candidate-label>MONUMENTAL QUIET<\/h2>/);
+  assert.match(html.slice(approval), /SINGLE APPROVAL GATE/);
+  assert.match(html.slice(approval), /One approval records the selected whole direction/);
+});
+
 test('workbench publishes a complete immutable asset bundle before replacing canonical HTML', async (t) => {
   const context = await compileAndReady(t);
   const oldBuild = await buildDirectorWorkbench(context.projectRoot);

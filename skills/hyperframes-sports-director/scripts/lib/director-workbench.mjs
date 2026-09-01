@@ -115,6 +115,10 @@ function renderCandidateRailDetail(candidate, index) {
   </div>`;
 }
 
+function renderApprovalZone(candidate) {
+  return `<section class="approval-zone"><span class="section-label">SINGLE APPROVAL GATE</span><h2 data-selected-candidate-label>${escapeHtml(candidate.title)}</h2><p>One approval records the selected whole direction. This records evidence only; design and Look lock remain a separate transaction.</p><button class="approve-button" type="button" data-approve>Approve ${escapeHtml(candidate.title)}</button><div class="approval-result" data-approval-result aria-live="polite"></div></section>`;
+}
+
 function renderKeyframe(frame, index) {
   return `<figure class="keyframe"><img src="${reviewUrl(frame.path)}" alt="Review-safe key frame ${index + 1}"><figcaption><span>${escapeHtml(frame.frameId)}</span><span>${compactTime(frame.sourceTimeSeconds)}</span></figcaption></figure>`;
 }
@@ -150,9 +154,9 @@ function renderContent(model) {
     <div class="rail-kicker"><span>DIRECTOR REVIEW</span><span>Rev ${model.proposals.revision}</span></div>
     <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}</ol>
     <section class="rail-section"><h3>BRIEF</h3><h2>${escapeHtml(model.brief.copy.title ?? 'Untitled journey')}</h2><p class="rail-copy">${escapeHtml(model.brief.story.tone ?? 'observational')} · ${model.brief.duration.targetSeconds}s · ${escapeHtml(model.brief.story.pacing)}</p></section>
+    ${model.approvalAvailable ? renderApprovalZone(active) : ''}
     <section class="rail-section"><h3>LOCAL MUSIC</h3><p class="rail-copy">${escapeHtml(active.musicPlan.mode)} · ${escapeHtml(active.musicPlan.trackIds.join(', ') || 'No track')}</p></section>
     ${model.proposals.candidates.map(renderCandidateRailDetail).join('\n')}
-    ${model.approvalAvailable ? `<section class="approval-zone"><span class="section-label">SINGLE APPROVAL GATE</span><p>Choose one complete direction. This records evidence only; design and Look lock remain a separate transaction.</p><button class="approve-button" type="button" data-approve>Approve ${escapeHtml(active.title)}</button><div class="approval-result" data-approval-result aria-live="polite"></div></section>` : ''}
     <script type="application/json" data-displayed-digests>${JSON.stringify(model.displayedArtifactDigests).replaceAll('<', '\\u003c')}</script>
   </aside>
 </main>`;
