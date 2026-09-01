@@ -1,4 +1,5 @@
-import { basename, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { basename, dirname, extname } from 'node:path';
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
@@ -66,11 +67,39 @@ function escapePattern(value) {
 function assertIdDerivedPrototypePaths(candidate) {
   for (const [role, paths] of [['layout', candidate.layoutProofs ?? []], ['motion', candidate.motionStoryboard ?? []]]) {
     for (const [index, path] of paths.entries()) {
+      if (extname(path).toLowerCase() !== '.svg') {
+        throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'v1 direction prototypes must be inert local SVG');
+      }
       const ordinal = String(index + 1).padStart(3, '0');
-      const expected = new RegExp(`^review/workbench-assets/prototype-${escapePattern(candidate.candidateId)}-${role}-${ordinal}\\.(?:svg|html|webp|png)$`);
+      const expected = new RegExp(`^review/workbench-assets/prototype-${escapePattern(candidate.candidateId)}-${role}-${ordinal}\\.svg$`);
       if (!expected.test(path)) {
         throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', `${role} prototype basename must derive only from its candidate ID, role, and ordinal`);
       }
+    }
+  }
+}
+
+function assertInertSvg(bytes) {
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG must be valid UTF-8');
+  }
+  if (!/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(text)
+    || /<\s*script\b|\son[a-z0-9_:-]+\s*=|<\s*foreignObject\b|<\s*(?:iframe|object|embed|audio|video|source)\b/i.test(text)
+    || /(?:@import|@font-face|<\s*font-face\b|data\s*:)/i.test(text)) {
+    throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG contains active, embedded, or remote-capable content');
+  }
+  for (const match of text.matchAll(/(?:^|\s)(?:xlink:)?(?:href|src)\s*=\s*(["'])(.*?)\1/gis)) {
+    if (!match[2].trim().startsWith('#')) {
+      throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG contains an external href or src');
+    }
+  }
+  for (const match of text.matchAll(/url\s*\(\s*([^)]*?)\s*\)/gis)) {
+    const reference = match[1].trim().replace(/^(["'])(.*)\1$/, '$2').trim();
+    if (!reference.startsWith('#')) {
+      throw new DirectionProposalError('E_PROTOTYPE_ACTIVE_CONTENT', 'prototype SVG contains an external CSS URL');
     }
   }
 }
@@ -209,7 +238,9 @@ async function validatePreviewArtifacts(projectRoot, candidate) {
   }
   for (const path of expectedPaths) {
     if (!path.startsWith('review/workbench-assets/')) throw new DirectionProposalError('E_REFERENCE_SCOPE', 'prototype paths must be project review derivatives');
-    const actual = await sha256File(projectPath(projectRoot, path));
+    const bytes = await readFile(projectPath(projectRoot, path));
+    assertInertSvg(bytes);
+    const actual = createHash('sha256').update(bytes).digest('hex');
     if (actual !== candidate.previewArtifactDigests[path]) throw new DirectionProposalError('E_PREVIEW_STALE', `stale preview ${path}`);
   }
 }

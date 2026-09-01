@@ -625,11 +625,40 @@ async function expireStaleSessions(parent, now) {
 }
 
 function send(response, statusCode, body, contentType = 'application/json; charset=utf-8') {
+  const svg = contentType === 'image/svg+xml';
   response.writeHead(statusCode, {
     'content-type': contentType, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-    'content-security-policy': "default-src 'self'; img-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    'cross-origin-resource-policy': 'same-origin',
+    'content-security-policy': svg
+      ? "default-src 'none'; script-src 'none'; style-src 'none'; img-src 'none'; font-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
+      : "default-src 'self'; img-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'none'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   });
   response.end(body);
+}
+
+function httpError(code, message, statusCode) {
+  return new DirectorWorkbenchError(code, message, { statusCode });
+}
+
+async function readPersistedHttpSession(sessionDir, expected) {
+  try {
+    const path = join(sessionDir, 'session.json');
+    const [directoryMetadata, fileMetadata, value] = await Promise.all([
+      lstat(sessionDir), lstat(path), readFile(path, 'utf8').then(JSON.parse),
+    ]);
+    const keys = Object.keys(value ?? {}).sort();
+    if (!directoryMetadata.isDirectory() || directoryMetadata.isSymbolicLink() || (directoryMetadata.mode & 0o777) !== 0o700
+      || !fileMetadata.isFile() || fileMetadata.isSymbolicLink() || (fileMetadata.mode & 0o777) !== 0o600
+      || keys.join(',') !== 'csrfDigest,expiresAt,id,integrity'
+      || value.id !== expected.id || value.csrfDigest !== expected.csrfDigest || value.expiresAt !== expected.expiresAt
+      || !verifyArtifactIntegrity(value).valid) {
+      throw httpError('E_HTTP_SESSION_INVALID', 'persisted HTTP session is invalid', 403);
+    }
+    return value;
+  } catch (error) {
+    if (error instanceof DirectorWorkbenchError) throw error;
+    throw httpError('E_HTTP_SESSION_INVALID', 'persisted HTTP session is missing or unreadable', 403);
+  }
 }
 
 export async function startWorkbenchServer(options = {}) {
@@ -642,7 +671,7 @@ export async function startWorkbenchServer(options = {}) {
   const ttlMs = options.ttlMs ?? 15 * 60_000;
   if (!Number.isFinite(issuedAt) || !Number.isFinite(ttlMs) || ttlMs <= 0) throw new DirectorWorkbenchError('E_SESSION_EXPIRY', 'valid session clock and positive expiry are required');
   const session = {
-    id: `session-${randomBytes(16).toString('hex')}`,
+    id: `session-${randomBytes(32).toString('hex')}`,
     csrfToken: `csrf-${randomBytes(24).toString('hex')}`,
     expiresAt: new Date(issuedAt + ttlMs).toISOString(),
   };
@@ -651,7 +680,12 @@ export async function startWorkbenchServer(options = {}) {
   const sessionDir = join(sessionParent, session.id);
   await mkdir(sessionDir, { recursive: true, mode: 0o700 });
   await chmod(sessionDir, 0o700);
-  await writeAtomic(join(sessionDir, 'session.json'), `${JSON.stringify({ id: session.id, csrfDigest: sha(session.csrfToken), expiresAt: session.expiresAt })}\n`, 0o600);
+  const persistedSession = {
+    id: session.id, csrfDigest: sha(session.csrfToken), expiresAt: session.expiresAt,
+    integrity: { digest: null, upstream: {} },
+  };
+  persistedSession.integrity.digest = computeArtifactDigest(persistedSession);
+  await writeAtomic(join(sessionDir, 'session.json'), `${JSON.stringify(persistedSession)}\n`, 0o600);
 
   const allow = new Map();
   for (const path of [model.stylesheetPath, model.scriptPath, model.roughCut.path]
@@ -664,19 +698,47 @@ export async function startWorkbenchServer(options = {}) {
     .replace('__HF_CSRF_TOKEN__', session.csrfToken)
     .replace('__HF_WORKBENCH_DIGEST__', built.digest);
 
-  const server = createServer(async (request, response) => {
+  const sessionPrefix = `/${session.id}/`;
+  let expectedHost;
+  let server;
+  let expiryTimer;
+  let closePromise;
+  let resolveClosed;
+  const closed = new Promise((resolve) => { resolveClosed = resolve; });
+  const close = async () => {
+    if (closePromise) return closePromise;
+    closePromise = (async () => {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      if (server.listening) await new Promise((resolvePromise) => server.close(resolvePromise));
+      await rm(sessionDir, { recursive: true, force: true });
+      resolveClosed();
+    })();
+    return closePromise;
+  };
+  server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://127.0.0.1');
-      if (request.method === 'GET' && ['/', '/director-workbench.html'].includes(url.pathname)) {
+      if (request.headers.host !== expectedHost) throw httpError('E_HTTP_HOST', 'exact loopback Host and port are required', 403);
+      if (url.search || !url.pathname.startsWith(sessionPrefix)) throw httpError('E_HTTP_SESSION_ROUTE', 'exact HTTP session route is required', 404);
+      const persisted = await readPersistedHttpSession(sessionDir, persistedSession);
+      const currentTime = Number((options.now ?? Date.now)());
+      if (!Number.isFinite(currentTime)) throw httpError('E_HTTP_SESSION_CLOCK', 'HTTP session clock is invalid', 403);
+      if (currentTime >= Date.parse(persisted.expiresAt)) {
+        send(response, 410, JSON.stringify({ ok: false, code: 'E_HTTP_SESSION_EXPIRED' }));
+        queueMicrotask(() => { void close(); });
+        return;
+      }
+      const route = `/${url.pathname.slice(sessionPrefix.length)}`;
+      if (request.method === 'GET' && ['/', '/director-workbench.html'].includes(route)) {
         send(response, 200, servedHtml, MIME.get('.html'));
         return;
       }
-      if (request.method === 'GET' && allow.has(url.pathname)) {
-        const path = allow.get(url.pathname);
+      if (request.method === 'GET' && allow.has(route)) {
+        const path = allow.get(route);
         send(response, 200, await readFile(path), MIME.get(extname(path)) ?? 'application/octet-stream');
         return;
       }
-      if (request.method === 'POST' && url.pathname === '/approval') {
+      if (request.method === 'POST' && route === '/approval') {
         const payload = await readBody(request);
         const result = await recordDirectorApproval({ ...payload, projectRoot, session });
         send(response, 200, JSON.stringify({ ok: true, approvalDigest: result.approval.integrity.digest }));
@@ -684,7 +746,7 @@ export async function startWorkbenchServer(options = {}) {
       }
       send(response, 404, JSON.stringify({ ok: false, code: 'E_NOT_FOUND' }));
     } catch (error) {
-      send(response, 400, JSON.stringify({ ok: false, code: error.code ?? 'E_REQUEST', message: error.message }));
+      send(response, error.statusCode ?? 400, JSON.stringify({ ok: false, code: error.code ?? 'E_REQUEST', message: error.message }));
     }
   });
   await new Promise((resolvePromise, reject) => {
@@ -692,16 +754,11 @@ export async function startWorkbenchServer(options = {}) {
     server.listen(options.port ?? 0, '127.0.0.1', resolvePromise);
   });
   const address = server.address();
-  let closed = false;
-  const close = async () => {
-    if (closed) return;
-    closed = true;
-    await new Promise((resolvePromise) => server.close(resolvePromise));
-    await rm(sessionDir, { recursive: true, force: true });
-  };
+  expectedHost = `127.0.0.1:${address.port}`;
+  expiryTimer = setTimeout(() => { void close(); }, ttlMs);
   return {
-    url: `http://127.0.0.1:${address.port}/`, expiresAt: session.expiresAt,
-    sessionId: session.id, csrfToken: session.csrfToken, session, sessionDir, close,
+    url: `http://127.0.0.1:${address.port}${sessionPrefix}`, expiresAt: session.expiresAt,
+    sessionId: session.id, csrfToken: session.csrfToken, session, sessionDir, close, closed,
   };
 }
 

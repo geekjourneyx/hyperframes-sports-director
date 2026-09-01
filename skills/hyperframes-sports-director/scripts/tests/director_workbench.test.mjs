@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -28,6 +29,17 @@ const STATES = ['INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT', 'D
 
 function sha(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function requestStatus(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, { headers }, (response) => {
+      response.resume();
+      response.once('end', () => resolve(response.statusCode));
+    });
+    request.once('error', reject);
+    request.end();
+  });
 }
 
 function stamp(value) {
@@ -396,6 +408,35 @@ test('proposal compiler rejects mixed candidate tokens, stale evidence, producti
   );
 });
 
+test('proposal compiler accepts only inert local SVG prototypes and rejects active or remote content', async (t) => {
+  const variants = [
+    { name: 'html', extension: '.html', bytes: '<!doctype html><script>alert(1)</script>' },
+    { name: 'script', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' },
+    { name: 'event attribute', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><rect onclick="alert(1)"/></svg>' },
+    { name: 'foreign object', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><iframe/></foreignObject></svg>' },
+    { name: 'remote href', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://example.com/a.png"/></svg>' },
+    { name: 'remote CSS URL', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><style>rect{fill:url(https://example.com/a.svg)}</style></svg>' },
+    { name: 'remote font', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><style>@font-face{font-family:x;src:url(font.woff2)}</style></svg>' },
+    { name: 'CSS import', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "theme.css";</style></svg>' },
+    { name: 'embedded data', extension: '.svg', bytes: '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AAAA"/></svg>' },
+  ];
+  for (const variant of variants) {
+    const { projectRoot, candidates } = await fixture(t);
+    const proposal = candidates[0];
+    const oldPath = proposal.layoutProofs[0];
+    const path = oldPath.replace(/\.svg$/, variant.extension);
+    proposal.layoutProofs[0] = path;
+    delete proposal.previewArtifactDigests[oldPath];
+    proposal.previewArtifactDigests[path] = sha(variant.bytes);
+    await writeFile(join(projectRoot, path), variant.bytes);
+    await assert.rejects(
+      () => compileDirectionProposals({ projectRoot, candidates }),
+      (error) => error.code === 'E_PROTOTYPE_ACTIVE_CONTENT',
+      variant.name,
+    );
+  }
+});
+
 test('workbench is a deterministic escaped evidence view with isolated candidates and one dominant director canvas', async (t) => {
   const { projectRoot, artifact } = await compileAndReady(t);
   const first = await buildWorkbenchModel(projectRoot);
@@ -564,6 +605,58 @@ test('approval is one current atomic hash-bound decision and never freezes or tr
   await server.close();
   await assert.rejects(() => stat(server.sessionDir), { code: 'ENOENT' });
   assert.equal((await stat(join(projectRoot, 'cache/director-workbench-sessions', unrelatedLiveSession.id))).isDirectory(), true);
+});
+
+test('HTTP workbench authenticates every session route and expires with exact cleanup and automatic close', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  await installSession(projectRoot, { id: 'session-unrelated-live', csrfToken: 'csrf-unrelated-live', expiresAt: '2026-09-01T13:00:00.000Z' });
+  let clock = Date.parse(NOW);
+  const server = await startWorkbenchServer({ projectRoot, port: 0, ttlMs: 60_000, now: () => clock });
+  t.after(() => server.close());
+  const sessionUrl = new URL(server.url);
+  assert.match(sessionUrl.pathname, /^\/session-[0-9a-f]{64}\/$/);
+  assert.equal(sessionUrl.search, '');
+  assert.equal((await stat(server.sessionDir)).mode & 0o777, 0o700);
+  assert.equal((await stat(join(server.sessionDir, 'session.json'))).mode & 0o777, 0o600);
+  assert.equal((await readFile(join(server.sessionDir, 'session.json'), 'utf8')).includes(server.csrfToken), false);
+
+  const rootUrl = new URL('/', sessionUrl);
+  assert.equal((await fetch(rootUrl)).status, 404);
+  assert.equal((await fetch(new URL('/approval', sessionUrl), { method: 'POST', body: '{}' })).status, 404);
+  assert.equal((await fetch(new URL('/session-not-the-owner/', sessionUrl))).status, 404);
+  assert.equal(await requestStatus(sessionUrl, { host: `localhost:${sessionUrl.port}` }), 403);
+
+  const page = await fetch(sessionUrl);
+  assert.equal(page.status, 200);
+  const pageCsp = page.headers.get('content-security-policy');
+  assert.match(pageCsp, /script-src 'self'(?:;|$)/);
+  assert.equal(pageCsp.includes("script-src 'self' 'unsafe-inline'"), false);
+  const model = await buildWorkbenchModel(projectRoot);
+  const asset = await fetch(new URL(model.keyFrames[0].path.slice('review/'.length), sessionUrl));
+  assert.equal(asset.status, 200);
+  assert.equal(asset.headers.get('x-content-type-options'), 'nosniff');
+  const svg = await fetch(new URL(model.proposals.candidates[0].layoutProofs[0].slice('review/'.length), sessionUrl));
+  assert.equal(svg.status, 200);
+  assert.equal(svg.headers.get('content-type'), 'image/svg+xml');
+  assert.equal(svg.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(svg.headers.get('content-security-policy'), /script-src 'none'/);
+  assert.match(svg.headers.get('content-security-policy'), /(?:^|;) sandbox(?:;|$)/);
+
+  clock += 60_001;
+  const expired = await fetch(sessionUrl);
+  assert.equal(expired.status, 410);
+  await server.closed;
+  await assert.rejects(() => stat(server.sessionDir), { code: 'ENOENT' });
+  assert.equal((await stat(join(projectRoot, 'cache/director-workbench-sessions/session-unrelated-live'))).isDirectory(), true);
+
+  const auto = await startWorkbenchServer({ projectRoot, port: 0, ttlMs: 40 });
+  t.after(() => auto.close());
+  await Promise.race([
+    auto.closed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('expiry close timed out')), 1_000)),
+  ]);
+  await assert.rejects(() => stat(auto.sessionDir), { code: 'ENOENT' });
+  await assert.rejects(() => fetch(auto.url));
 });
 
 test('approval uses one project-scoped exclusive transaction across revalidation and atomic write', async (t) => {
