@@ -27,6 +27,17 @@ export function computeWarningDecisionDigest(timeline) {
   return createHash('sha256').update(JSON.stringify(canonical(timeline))).digest('hex');
 }
 
+export function normalizePlaybackRateCurve(item) {
+  const curve = item?.playbackRateCurve ?? [];
+  if (curve.length === 1) {
+    return [
+      { sourceTimeSeconds: item.sourceInSeconds, rate: curve[0].rate },
+      { sourceTimeSeconds: item.sourceOutSeconds, rate: curve[0].rate },
+    ];
+  }
+  return curve;
+}
+
 export function findDuplicateViolations(timeline, shots, minSeparationSeconds) {
   const byId = new Map((shots ?? []).map((shot) => [shot.shotId, shot]));
   const latestByGroup = new Map();
@@ -100,7 +111,7 @@ function validateSource(item, index, phase, probeById, errors) {
 
 function validateTreatment(item, shot, index, policy, errors) {
   const path = `/items/${index}`;
-  const curve = item.playbackRateCurve ?? [];
+  const curve = normalizePlaybackRateCurve(item);
   const maximumRate = policy.speedPolicy?.maximumMontageRate ?? 1;
   for (let pointIndex = 0; pointIndex < curve.length; pointIndex += 1) {
     const point = curve[pointIndex];
@@ -147,6 +158,18 @@ function validateTreatment(item, shot, index, policy, errors) {
   }
 }
 
+function validateShotBinding(item, shot, index, errors) {
+  if (!shot) return;
+  const path = `/items/${index}`;
+  if (item.sourceMediaId !== shot.mediaId || item.sourceReference?.digest !== shot.sourceDigest
+    || item.sourceDurationSeconds !== shot.sourceDurationSeconds) {
+    errors.push(diagnostic('E_SHOT_SOURCE_BINDING', path, 'timeline source media, digest, and duration must match the referenced shot'));
+  }
+  if (item.sourceInSeconds < shot.sourceInSeconds || item.sourceOutSeconds > shot.sourceOutSeconds) {
+    errors.push(diagnostic('E_SHOT_SOURCE_BOUNDS', path, 'timeline source interval must remain within the referenced shot'));
+  }
+}
+
 export function validateTimeline({ phase, probe, shots, transcript, assetManifest, motionMap, timeline, profiles }) {
   const errors = [];
   const warnings = [];
@@ -176,6 +199,7 @@ export function validateTimeline({ phase, probe, shots, transcript, assetManifes
     const item = items[index];
     const shot = shotById.get(item.shotId);
     if (!shot) errors.push(diagnostic('E_SHOT_REFERENCE', `/items/${index}/shotId`, 'timeline item must resolve an Agent-authored shot'));
+    validateShotBinding(item, shot, index, errors);
     validateSource(item, index, actualPhase, probeById, errors);
     validateTreatment(item, shot, index, policy, errors);
     if (index > 0) {
@@ -199,6 +223,11 @@ export function validateTimeline({ phase, probe, shots, transcript, assetManifes
     for (let index = 0; index < items.length; index += 1) {
       for (const id of items[index].assetReferences ?? []) if (!assets.has(id)) errors.push(diagnostic('E_ASSET_REFERENCE', `/items/${index}/assetReferences`, `unresolved asset ${id}`));
       for (const id of items[index].motionReferences ?? []) if (!owners.has(id)) errors.push(diagnostic('E_MOTION_REFERENCE', `/items/${index}/motionReferences`, `unresolved motion owner ${id}`));
+      const transitionOwner = items[index].transition?.ownerId;
+      if (items[index].transition?.kind !== 'none'
+        && (!owners.has(transitionOwner) || !(items[index].motionReferences ?? []).includes(transitionOwner))) {
+        errors.push(diagnostic('E_TRANSITION_OWNER_REFERENCE', `/items/${index}/transition/ownerId`, 'final transition owner must resolve in the frozen motion map and this item motionReferences'));
+      }
     }
   }
   const decisions = new Map((timeline?.warningDecisions ?? []).map((entry) => [entry.decisionId, entry]));

@@ -1,5 +1,6 @@
 import { projectPath, sha256File } from './media.mjs';
 import { ffprobeJson } from './ffmpeg.mjs';
+import { normalizePlaybackRateCurve } from './timeline.mjs';
 
 function invalid(code, message) {
   const error = new Error(message);
@@ -67,10 +68,11 @@ export async function compileRoughRenderPlan({ project, probe, timeline, width =
       `trim=duration=${seconds(destinationDuration)}`, 'setpts=PTS-STARTPTS', 'format=yuv420p',
     );
     const hasAudio = media.streams?.some(({ type }) => type === 'audio') && media.mediaType !== 'image';
-    const curve = item.playbackRateCurve ?? [
+    const curve = normalizePlaybackRateCurve(item);
+    if (curve.length === 0) curve.push(
       { sourceTimeSeconds: item.sourceInSeconds, rate: item.playbackRate ?? 1 },
       { sourceTimeSeconds: item.sourceOutSeconds, rate: item.playbackRate ?? 1 },
-    ];
+    );
     if (media.mediaType !== 'image' && curve.length > 1) {
       const segmentLabels = [];
       for (let segmentIndex = 0; segmentIndex < curve.length - 1; segmentIndex += 1) {
@@ -148,7 +150,8 @@ export async function compileRoughRenderPlan({ project, probe, timeline, width =
     if (fadeIn > 0) treatments.push(`afade=t=in:st=0:d=${seconds(fadeIn)}`);
     if (fadeOut > 0) treatments.push(`afade=t=out:st=${seconds(totalDuration - fadeOut)}:d=${seconds(fadeOut)}`);
     filters.push(`[${musicLabel}]${treatments.join(',')}[musicReady]`);
-    filters.push('[musicReady][abase]sidechaincompress=threshold=0.03:ratio=6[duckedMusic]');
+    const duckRatio = 1 + Math.abs(music.duckUnderSpeechDb ?? -12) / 3;
+    filters.push(`[musicReady][abase]sidechaincompress=threshold=0.03:ratio=${seconds(duckRatio)}:attack=20:release=250[duckedMusic]`);
     filters.push('[abase][duckedMusic]amix=inputs=2:duration=first:dropout_transition=0[arough]');
   }
   args.push('-filter_complex', filters.join(';'), '-map', '[vrough]', '-map', '[arough]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outputPath ?? projectPath(project, 'renders/rough-cut.mp4'));

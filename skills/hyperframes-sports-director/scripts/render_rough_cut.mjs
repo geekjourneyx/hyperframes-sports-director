@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { errorResult, parseCliArguments } from './lib/cli.mjs';
+import { loadEditorialEvidence } from './lib/editorial-evidence.mjs';
 import { ffprobeJson, runFfmpeg } from './lib/ffmpeg.mjs';
 import { projectPath, sha256File, writeJsonAtomic } from './lib/media.mjs';
 import { compileRoughRenderPlan } from './lib/render-plan.mjs';
@@ -25,6 +26,11 @@ export async function renderRoughCut({ project, probe, shots, transcript, timeli
   const temporary = projectPath(project, `renders/.rough-cut.${process.pid}.tmp.mp4`);
   let plan;
   try {
+    const evidence = await loadEditorialEvidence({
+      project, phase: 'rough', requireTimelineIntegrity: true,
+      provided: { probe, shots, transcript, timeline },
+    });
+    ({ probe, shots, transcript, timeline, profiles } = evidence);
     const validation = validateTimeline({ phase: 'rough', project, probe, shots, transcript, timeline, profiles });
     if (!validation.renderable) {
       const error = new Error('rough timeline has hard errors or unresolved Agent warnings');
@@ -96,13 +102,7 @@ const DEFINITIONS = { project: { required: true }, width: { required: false }, h
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const options = parseCliArguments(process.argv.slice(2), DEFINITIONS);
-    const probe = JSON.parse(await readFile(projectPath(options.project, 'analysis/PROBE.json'), 'utf8'));
-    const timeline = JSON.parse(await readFile(projectPath(options.project, 'edit/TIMELINE.json'), 'utf8'));
-    const shots = JSON.parse((await readFile(projectPath(options.project, 'analysis/SHOTS.jsonl'), 'utf8')).trim());
-    const transcript = JSON.parse(await readFile(projectPath(options.project, 'analysis/TRANSCRIPT.json'), 'utf8'));
-    const projectDocument = JSON.parse(await readFile(projectPath(options.project, 'PROJECT.json'), 'utf8'));
-    const sportProfile = JSON.parse(await readFile(new URL(`../profiles/sports/${projectDocument.profiles.sport}.json`, import.meta.url), 'utf8'));
-    process.stdout.write(`${JSON.stringify(await renderRoughCut({ ...options, width: Number(options.width ?? 960), height: Number(options.height ?? 540), probe, shots, transcript, timeline, profiles: { sport: sportProfile } }))}\n`);
+    process.stdout.write(`${JSON.stringify(await renderRoughCut({ ...options, width: Number(options.width ?? 960), height: Number(options.height ?? 540) }))}\n`);
   } catch (error) {
     process.stdout.write(`${JSON.stringify(errorResult(error))}\n`);
     process.exitCode = error.code === 'E_USAGE' ? 2 : 1;

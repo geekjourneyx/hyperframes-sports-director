@@ -29,7 +29,7 @@ function probeFixture() {
 function shotFixture(overrides = {}) {
   return {
     shotId: 'shot-video-001', mediaId: 'media-video-001', sourceInSeconds: 0, sourceOutSeconds: 10,
-    sourceDigest: digest('1'), duplicateGroup: null, setupTailLikelihood: 0.05,
+    sourceDigest: digest('1'), sourceDurationSeconds: 10, duplicateGroup: null, setupTailLikelihood: 0.05,
     quality: { shake: 'none' },
     continuity: {
       screenDirection: 'left-to-right', motionDirection: 'forward', subjectEntry: 'left', subjectExit: 'right',
@@ -193,4 +193,45 @@ test('timeline lineage binds current probe, shots, and transcript and final kind
     assetManifest: { status: 'frozen', assets: [] }, motionMap: { status: 'frozen', owners: [] },
   });
   assert.ok(finalResult.errors.some(({ code }) => code === 'E_FINAL_ORIGINAL_REQUIRED'));
+});
+
+test('timeline item cannot impersonate another shot to bypass shot quality and continuity authority', () => {
+  const shots = { shots: [
+    shotFixture({ shotId: 'shot-safe', sourceInSeconds: 0, sourceOutSeconds: 4 }),
+    shotFixture({
+      shotId: 'shot-risky', mediaId: 'media-image-001', sourceDigest: digest('2'), sourceDurationSeconds: 0,
+      sourceInSeconds: 0, sourceOutSeconds: 0.001, quality: { shake: 'severe' }, setupTailLikelihood: 0.95,
+    }),
+  ] };
+  const impersonated = itemFixture({ shotId: 'shot-risky' });
+  const result = validateTimeline({ phase: 'rough', probe: probeFixture(), shots, timeline: timelineFixture([impersonated]), profiles });
+  assert.ok(result.errors.some(({ code }) => code === 'E_SHOT_SOURCE_BINDING'));
+
+  const outsideShot = itemFixture({ shotId: 'shot-safe', sourceInSeconds: 3.5, sourceOutSeconds: 5,
+    playbackRateCurve: [{ sourceTimeSeconds: 3.5, rate: 1 }, { sourceTimeSeconds: 5, rate: 1 }], destinationOutSeconds: 1.5 });
+  const bounded = validateTimeline({ phase: 'rough', probe: probeFixture(), shots, timeline: timelineFixture([outsideShot]), profiles });
+  assert.ok(bounded.errors.some(({ code }) => code === 'E_SHOT_SOURCE_BOUNDS'));
+});
+
+test('final transition owner resolves in the frozen motion map and the item motion references', () => {
+  const probe = probeFixture();
+  const shots = { shots: [shotFixture()] };
+  const base = itemFixture({
+    sourceReference: { kind: 'original', path: 'media/originals/media-video-001.mp4', digest: digest('1') },
+    transition: { kind: 'cross-dissolve', ownerId: 'owner-transition' }, motionReferences: [],
+  });
+  const result = validateTimeline({
+    phase: 'final', probe, shots, timeline: timelineFixture([base], { phase: 'final' }), profiles,
+    assetManifest: { status: 'frozen', assets: [] },
+    motionMap: { status: 'frozen', owners: [{ ownerId: 'owner-transition', assetId: 'asset-transition' }] },
+  });
+  assert.ok(result.errors.some(({ code }) => code === 'E_TRANSITION_OWNER_REFERENCE'));
+
+  const missing = structuredClone(base);
+  missing.motionReferences = ['owner-transition'];
+  const absent = validateTimeline({
+    phase: 'final', probe, shots, timeline: timelineFixture([missing], { phase: 'final' }), profiles,
+    assetManifest: { status: 'frozen', assets: [] }, motionMap: { status: 'frozen', owners: [] },
+  });
+  assert.ok(absent.errors.some(({ code }) => code === 'E_TRANSITION_OWNER_REFERENCE'));
 });
