@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hyperframes.local/schemas/project.schema.json",
   "type": "object",
-  "required": ["$schema", "schemaVersion", "projectId", "revision", "createdAt", "updatedAt", "paths", "remoteCapabilitiesForbidden", "integrity"],
+  "required": ["$schema", "schemaVersion", "projectId", "revision", "createdAt", "updatedAt", "paths", "profiles", "remoteCapabilitiesForbidden", "integrity"],
   "properties": {
     "$schema": { "const": "https://hyperframes.local/schemas/project.schema.json" },
     "schemaVersion": { "const": "1.0.0" },
@@ -13,6 +13,17 @@
     "paths": {
       "type": "object", "required": ["workspace", "inputReference"], "additionalProperties": false,
       "properties": { "workspace": { "$ref": "#/$defs/path" }, "inputReference": { "$ref": "#/$defs/path" } }
+    },
+    "profiles": {
+      "type": "object",
+      "required": ["sport", "device", "delivery", "sportMaturity"],
+      "additionalProperties": false,
+      "properties": {
+        "sport": { "enum": ["cycling", "hiking", "pool-swimming", "running", "technical-mountaineering", "trail-running", "open-water-swimming"] },
+        "device": { "const": "dji-osmo-action-5-pro" },
+        "delivery": { "enum": ["landscape-4k", "landscape-1080p"] },
+        "sportMaturity": { "enum": ["release-grade", "experimental"] }
+      }
     },
     "remoteCapabilitiesForbidden": { "type": "boolean" },
     "integrity": { "$ref": "#/$defs/integrity" }

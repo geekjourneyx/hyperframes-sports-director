@@ -75,11 +75,12 @@ function projectStateAt(base, state) {
     : mainStates.slice(0, mainStates.indexOf(state) + 1);
   const transitions = route.slice(1).map((to, index) => {
     const digest = (index + 1).toString(16).padStart(64, '0');
+    const role = `${to}_GATE`;
     return {
       from: route[index],
       to,
       at: `2026-09-01T00:${String(index).padStart(2, '0')}:00.000Z`,
-      evidenceDigests: { gate: digest },
+      evidenceDigests: { [role]: digest },
     };
   });
   const last = transitions.at(-1);
@@ -89,7 +90,18 @@ function projectStateAt(base, state) {
     previousState: last.from,
     stateEnteredAt: last.at,
     transitions,
-    gateEvidence: [{ gate: state, digest: last.evidenceDigests.gate }],
+    gateEvidence: transitions.map((transition) => {
+      const [role, digest] = Object.entries(transition.evidenceDigests)[0];
+      return {
+        gate: transition.to,
+        role,
+        revision: 1,
+        digest,
+        timestamp: transition.at,
+        producerCommand: `test-gate --state ${transition.to}`,
+        qualifiers: ['accepted'],
+      };
+    }),
   };
 }
 
@@ -114,6 +126,18 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   const directorApproval = await template('DIRECTOR_APPROVAL');
 
   assert.equal(project.schemaVersion, '1.0.0');
+  assert.deepEqual(project.profiles, {
+    sport: 'cycling',
+    device: 'dji-osmo-action-5-pro',
+    delivery: 'landscape-4k',
+    sportMaturity: 'release-grade',
+  });
+  const falseReleaseClaim = clone(project);
+  falseReleaseClaim.profiles.sport = 'running';
+  assertInvalid(schemas.project, falseReleaseClaim, 'experimental sports cannot claim release-grade maturity');
+  const falseExperimentalClaim = clone(project);
+  falseExperimentalClaim.profiles.sportMaturity = 'experimental';
+  assertInvalid(schemas.project, falseExperimentalClaim, 'release-grade sports retain their resolved maturity');
   assert.equal(projectState.state, 'INTAKE');
   assert.equal(editBrief.delivery.aspectRatio, '16:9');
   assert.equal(editBrief.music.mode, 'provided');
@@ -392,6 +416,17 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   }
   const validStateHistory = projectStateAt(projectState, 'DELIVERED');
   assertValid(schemas['project-state'], validStateHistory, 'main lifecycle transitions are ordered');
+  assert.equal(validStateHistory.gateEvidence.length, validStateHistory.transitions.length);
+  assert.deepEqual(
+    Object.keys(validStateHistory.gateEvidence[0]).sort(),
+    ['digest', 'gate', 'producerCommand', 'qualifiers', 'revision', 'role', 'timestamp'],
+  );
+  const unauditableHistory = clone(validStateHistory);
+  unauditableHistory.gateEvidence.splice(2, 1);
+  assertInvalid(schemas['project-state'], unauditableHistory, 'every non-INTAKE transition retains auditable gate evidence');
+  const unboundHistory = clone(validStateHistory);
+  unboundHistory.gateEvidence[2].digest = 'f'.repeat(64);
+  assertInvalid(schemas['project-state'], unboundHistory, 'gate evidence digest binds to its transition role');
   const skippedState = clone(validStateHistory);
   skippedState.transitions[0].to = 'SCAN';
   assertInvalid(schemas['project-state'], skippedState, 'state transitions cannot skip required gates');

@@ -11,13 +11,27 @@
     "previousState": { "anyOf": [{ "$ref": "#/$defs/state" }, { "type": "null" }] },
     "stateEnteredAt": { "type": "string", "format": "date-time" },
     "transitions": { "type": "array", "items": { "$ref": "#/$defs/transition" } },
-    "gateEvidence": { "type": "array", "items": { "type": "object", "required": ["gate", "digest"], "additionalProperties": false, "properties": { "gate": { "type": "string", "minLength": 1 }, "digest": { "$ref": "#/$defs/digest" } } } },
+    "gateEvidence": { "type": "array", "items": { "$ref": "#/$defs/gateEvidence" } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
   "additionalProperties": false,
   "$defs": {
     "state": { "enum": ["INTAKE", "CAPABILITY_CHECK", "SCAN", "ANALYZE", "ROUGH_CUT", "DIRECTOR_REVIEW_READY", "DIRECTOR_LOCK", "STYLE_ANCHOR", "ASSET_PRODUCTION", "MOTION_COMPOSITION", "FINAL_RENDER", "FINAL_QA", "DELIVERED", "USER_ACCEPTED", "BLOCKED", "CANCELLED"] },
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gateEvidence": {
+      "type": "object",
+      "required": ["gate", "role", "revision", "digest", "timestamp", "producerCommand", "qualifiers"],
+      "additionalProperties": false,
+      "properties": {
+        "gate": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "producerCommand": { "type": "string", "minLength": 1 },
+        "qualifiers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
     "transition": { "type": "object", "required": ["from", "to", "at", "evidenceDigests"], "additionalProperties": false, "properties": { "from": { "$ref": "#/$defs/state" }, "to": { "$ref": "#/$defs/state" }, "at": { "type": "string", "format": "date-time" }, "evidenceDigests": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/digest" } } } },
     "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
   }

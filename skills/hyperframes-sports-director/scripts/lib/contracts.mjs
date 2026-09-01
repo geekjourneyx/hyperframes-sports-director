@@ -34,6 +34,15 @@ const REVIEW_EXTENSIONS = {
   image: new Set(['jpg', 'jpeg', 'png', 'webp']),
   audio: new Set(['m4a', 'wav']),
 };
+const SPORT_MATURITY = {
+  cycling: 'release-grade',
+  hiking: 'release-grade',
+  'pool-swimming': 'release-grade',
+  running: 'experimental',
+  'technical-mountaineering': 'experimental',
+  'trail-running': 'experimental',
+  'open-water-swimming': 'experimental',
+};
 
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
@@ -104,6 +113,11 @@ function checkProjectState(value, schema, errors) {
     if (index > 0 && value.transitions[index - 1].to !== transition.from) {
       addSemantic(errors, schema, 'E_STATE_HISTORY', `/transitions/${index}/from`, 'transition history must be contiguous');
     }
+    const boundEvidence = value.gateEvidence.some((evidence) => evidence.gate === transition.to
+      && transition.evidenceDigests[evidence.role] === evidence.digest);
+    if (!boundEvidence) {
+      addSemantic(errors, schema, 'E_STATE_GATE_HISTORY', `/gateEvidence`, `${transition.to} requires auditable role-bound gate evidence`);
+    }
   }
   if (value.transitions.length > 0 && value.transitions.at(-1).to !== value.state) {
     addSemantic(errors, schema, 'E_STATE_CURRENT', '/state', 'state must equal the final transition destination');
@@ -115,9 +129,18 @@ function checkProjectState(value, schema, errors) {
   if (value.stateEnteredAt !== finalTransition.at) {
     addSemantic(errors, schema, 'E_STATE_ENTERED_AT', '/stateEnteredAt', 'stateEnteredAt must equal the final transition timestamp');
   }
-  const finalGate = value.gateEvidence.at(-1);
-  if (!finalGate || finalGate.gate !== value.state || !Object.values(finalTransition.evidenceDigests).includes(finalGate.digest)) {
+  const finalGate = value.gateEvidence.findLast((evidence) => evidence.gate === value.state
+    && finalTransition.evidenceDigests[evidence.role] === evidence.digest);
+  if (!finalGate) {
     addSemantic(errors, schema, 'E_STATE_GATE_EVIDENCE', '/gateEvidence', 'final gate evidence must bind the current state to the final transition');
+  }
+  for (let index = 0; index < value.gateEvidence.length; index += 1) {
+    const evidence = value.gateEvidence[index];
+    const boundTransition = value.transitions.some((transition) => transition.to === evidence.gate
+      && transition.evidenceDigests[evidence.role] === evidence.digest);
+    if (!boundTransition) {
+      addSemantic(errors, schema, 'E_STATE_ORPHAN_EVIDENCE', `/gateEvidence/${index}`, 'gate evidence must bind to one transition role and digest');
+    }
   }
 }
 
@@ -176,6 +199,9 @@ function checkProbeReviewPaths(value, schema, errors) {
 function semanticErrors(schema, value) {
   const errors = [];
   const name = schemaName(schema);
+  if (name === 'project' && SPORT_MATURITY[value.profiles.sport] !== value.profiles.sportMaturity) {
+    addSemantic(errors, schema, 'E_PROFILE_MATURITY', '/profiles/sportMaturity', 'sport maturity must match the resolved sport profile');
+  }
   if (name === 'media-index') checkUniqueIds(value.entries, 'mediaId', '/entries', schema, errors);
   if (name === 'probe') {
     checkUniqueIds(value.media, 'mediaId', '/media', schema, errors);

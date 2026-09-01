@@ -6,6 +6,7 @@
   "createdAt": "1970-01-01T00:00:00.000Z",
   "updatedAt": "1970-01-01T00:00:00.000Z",
   "paths": { "workspace": ".", "inputReference": "media/originals" },
+  "profiles": { "sport": "cycling", "device": "dji-osmo-action-5-pro", "delivery": "landscape-4k", "sportMaturity": "release-grade" },
   "remoteCapabilitiesForbidden": true,
   "integrity": { "digest": null, "upstream": {} }
 }
