@@ -24,8 +24,14 @@ function dependencies(overrides = {}) {
       }
       throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
     },
-    resolveSharp: async () => overrides.sharp === false ? null : { version: '0.34.3' },
-    pathExists: async (path) => ![...missingScaffolds].some((name) => path.includes(name)),
+    resolveSharp: async () => {
+      if (overrides.sharpError) throw overrides.sharpError;
+      return overrides.sharp === false ? null : { version: '0.34.3' };
+    },
+    pathExists: async (path) => {
+      if (overrides.pathError) throw overrides.pathError;
+      return ![...missingScaffolds].some((name) => path.includes(name));
+    },
   };
 }
 
@@ -86,6 +92,37 @@ test('missing optional stabilization filters produce one named fallback warning 
       missingFilters: omitted,
     }]);
   }
+});
+
+test('Sharp native-load and arbitrary probe failures become named capability errors', async () => {
+  const nativeError = new Error('libvips ABI mismatch');
+  nativeError.code = 'ERR_DLOPEN_FAILED';
+  const native = await checkInstall(dependencies({ sharpError: nativeError }));
+  assert.equal(native.ok, false);
+  assert.ok(native.errors.some(({ code }) => code === 'E_SHARP_LOAD'));
+
+  const arbitrary = await checkInstall(dependencies({ sharpError: new Error('unexpected sharp probe failure') }));
+  assert.equal(arbitrary.ok, false);
+  assert.ok(arbitrary.errors.some(({ code }) => code === 'E_SHARP_CHECK_FAILED'));
+});
+
+test('check_install CLI converts an unexpected probe throw into exactly one JSON diagnostic', async () => {
+  const writes = [];
+  const exit = await runCheckInstallCli(
+    ['--json'],
+    dependencies({ pathError: new Error('filesystem probe exploded') }),
+    (text) => writes.push(text),
+  );
+  assert.equal(exit, 1);
+  assert.equal(writes.length, 1);
+  assert.deepEqual(JSON.parse(writes[0]), {
+    ok: false,
+    versions: { node: null, ffmpeg: null, ffprobe: null, sharp: null },
+    filters: {},
+    scaffolds: {},
+    warnings: [],
+    errors: [{ code: 'E_CAPABILITY_CHECK', message: 'filesystem probe exploded' }],
+  });
 });
 
 test('check_install --json CLI writes one machine-readable result and uses a non-zero failure exit', async () => {

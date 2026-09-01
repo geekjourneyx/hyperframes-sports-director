@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { validateGateEvidence } from './project-state.mjs';
 
 const SCHEMA_VERSION = '1.0.0';
 const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'schemas');
@@ -95,8 +96,8 @@ function checkLifecycle(value, schema, errors) {
 
 function checkProjectState(value, schema, errors) {
   if (value.transitions.length === 0) {
-    if (value.state !== 'INTAKE' || value.previousState !== null || value.gateEvidence.length > 0) {
-      addSemantic(errors, schema, 'E_STATE_HISTORY_REQUIRED', '/transitions', 'only INTAKE may have empty transition history');
+    if (value.state !== 'INTAKE' || value.previousState !== null || value.gateEvidence.length > 0 || value.invalidations.length > 0) {
+      addSemantic(errors, schema, 'E_STATE_HISTORY_REQUIRED', '/transitions', 'only INTAKE with no gate or invalidation evidence may have empty transition history');
     }
     return;
   }
@@ -107,16 +108,55 @@ function checkProjectState(value, schema, errors) {
     const transition = value.transitions[index];
     const fromIndex = MAIN_STATES.indexOf(transition.from);
     const expected = fromIndex >= 0 ? MAIN_STATES[fromIndex + 1] : undefined;
+    const invalidation = transition.kind === 'invalidation'
+      ? value.invalidations.find((entry) => entry.at === transition.at && entry.fromState === transition.from
+        && entry.rollbackTarget === transition.rollbackTarget && entry.evidenceDigest === Object.values(transition.evidenceDigests)[0])
+      : undefined;
+    const crossesFrozenBoundary = invalidation?.invalidatedRoles.some((role) => ['DESIGN_SYSTEM', 'LOOK_PROFILE'].includes(role));
+    const rollbackMovesBackward = MAIN_STATES.indexOf(transition.rollbackTarget) < MAIN_STATES.indexOf(transition.from);
+    const validInvalidationDigest = invalidation && (() => {
+      const { evidenceDigest, ...digestInput } = invalidation;
+      return evidenceDigest === computeArtifactDigest(digestInput);
+    })();
+    const validInvalidation = invalidation && validInvalidationDigest && rollbackMovesBackward
+      && (invalidation.disposition === 'rollback'
+        ? transition.to === transition.rollbackTarget && !crossesFrozenBoundary
+        : transition.to === 'BLOCKED' && crossesFrozenBoundary
+          && MAIN_STATES.indexOf(transition.rollbackTarget) < MAIN_STATES.indexOf('DIRECTOR_LOCK'));
     const allowed = !['BLOCKED', 'CANCELLED'].includes(transition.from)
-      && (transition.to === expected || ['BLOCKED', 'CANCELLED'].includes(transition.to));
+      && (transition.to === expected || ['BLOCKED', 'CANCELLED'].includes(transition.to) || validInvalidation);
     if (!allowed) addSemantic(errors, schema, 'E_STATE_TRANSITION', `/transitions/${index}/to`, `${transition.from} cannot transition to ${transition.to}`);
     if (index > 0 && value.transitions[index - 1].to !== transition.from) {
       addSemantic(errors, schema, 'E_STATE_HISTORY', `/transitions/${index}/from`, 'transition history must be contiguous');
     }
-    const boundEvidence = value.gateEvidence.some((evidence) => evidence.gate === transition.to
-      && transition.evidenceDigests[evidence.role] === evidence.digest);
-    if (!boundEvidence) {
-      addSemantic(errors, schema, 'E_STATE_GATE_HISTORY', `/gateEvidence`, `${transition.to} requires auditable role-bound gate evidence`);
+    const records = value.gateEvidence.filter((evidence) => evidence.gate === transition.to
+      && Object.hasOwn(transition.evidenceDigests, evidence.role));
+    const digestRoles = Object.keys(transition.evidenceDigests).sort();
+    const revisionRoles = Object.keys(transition.evidenceRevisions).sort();
+    const recordRoles = records.map(({ role }) => role).sort();
+    if (digestRoles.length !== revisionRoles.length || digestRoles.length !== recordRoles.length
+      || digestRoles.some((role, roleIndex) => role !== revisionRoles[roleIndex] || role !== recordRoles[roleIndex])) {
+      addSemantic(errors, schema, 'E_STATE_EVIDENCE_METADATA', `/transitions/${index}`, 'transition evidence roles must have exact digest and revision metadata');
+    } else {
+      try {
+        validateGateEvidence(
+          transition.to,
+          records,
+          Object.fromEntries(digestRoles.map((role) => [role, { revision: transition.evidenceRevisions[role], digest: transition.evidenceDigests[role] }])),
+          { timestamp: transition.at, skipGateRequirements: transition.kind === 'invalidation', allowInvalidated: true },
+        );
+      } catch (error) {
+        addSemantic(errors, schema, error.code ?? 'E_STATE_GATE_HISTORY', '/gateEvidence', error.message);
+      }
+    }
+    if (transition.kind === 'invalidation') {
+      const record = records[0];
+      const expectedRole = invalidation?.disposition === 'blocked' ? 'APPROVAL_BOUNDARY_CROSSED' : 'INVALIDATION';
+      const expectedQualifier = invalidation?.disposition === 'blocked' ? 'approval-boundary-crossed' : 'rollback';
+      if (!validInvalidation || records.length !== 1 || record?.role !== expectedRole
+        || record.qualifiers.length !== 1 || record.qualifiers[0] !== expectedQualifier) {
+        addSemantic(errors, schema, 'E_STATE_INVALIDATION', `/transitions/${index}`, 'invalidation transition must bind its rollback target, disposition, and evidence');
+      }
     }
   }
   if (value.transitions.length > 0 && value.transitions.at(-1).to !== value.state) {
@@ -130,17 +170,27 @@ function checkProjectState(value, schema, errors) {
     addSemantic(errors, schema, 'E_STATE_ENTERED_AT', '/stateEnteredAt', 'stateEnteredAt must equal the final transition timestamp');
   }
   const finalGate = value.gateEvidence.findLast((evidence) => evidence.gate === value.state
-    && finalTransition.evidenceDigests[evidence.role] === evidence.digest);
+    && finalTransition.evidenceDigests[evidence.role] === evidence.digest
+    && evidence.validity === 'valid');
   if (!finalGate) {
     addSemantic(errors, schema, 'E_STATE_GATE_EVIDENCE', '/gateEvidence', 'final gate evidence must bind the current state to the final transition');
   }
   for (let index = 0; index < value.gateEvidence.length; index += 1) {
     const evidence = value.gateEvidence[index];
+    if ((evidence.validity === 'valid' && evidence.invalidatedAt !== null)
+      || (evidence.validity === 'invalidated' && evidence.invalidatedAt === null)) {
+      addSemantic(errors, schema, 'E_STATE_EVIDENCE_VALIDITY', `/gateEvidence/${index}`, 'evidence validity and invalidatedAt must agree');
+    }
     const boundTransition = value.transitions.some((transition) => transition.to === evidence.gate
-      && transition.evidenceDigests[evidence.role] === evidence.digest);
+      && transition.evidenceDigests[evidence.role] === evidence.digest
+      && transition.evidenceRevisions[evidence.role] === evidence.revision
+      && transition.at === evidence.timestamp);
     if (!boundTransition) {
       addSemantic(errors, schema, 'E_STATE_ORPHAN_EVIDENCE', `/gateEvidence/${index}`, 'gate evidence must bind to one transition role and digest');
     }
+  }
+  if (value.invalidations.length !== value.transitions.filter(({ kind }) => kind === 'invalidation').length) {
+    addSemantic(errors, schema, 'E_STATE_INVALIDATION_HISTORY', '/invalidations', 'every invalidation record must bind exactly one invalidation transition');
   }
 }
 

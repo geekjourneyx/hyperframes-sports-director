@@ -100,9 +100,13 @@ export async function checkInstall(dependencies = {}) {
     }
   }
 
-  const sharp = await resolveSharp();
-  if (sharp === null) errors.push({ code: 'E_SHARP_MISSING' });
-  else versions.sharp = sharp.version;
+  try {
+    const sharp = await resolveSharp();
+    if (sharp === null) errors.push({ code: 'E_SHARP_MISSING' });
+    else versions.sharp = sharp.version;
+  } catch (error) {
+    errors.push({ code: error?.code === 'ERR_DLOPEN_FAILED' ? 'E_SHARP_LOAD' : 'E_SHARP_CHECK_FAILED', message: error.message });
+  }
 
   const scaffoldPaths = {
     hyperframesProject: join(SCRIPT_DIR, '..', 'assets', 'hyperframes-project'),
@@ -123,7 +127,19 @@ export async function runCheckInstallCli(argv, dependencies, write = (text) => p
     write(`${JSON.stringify({ ok: false, errors: [{ code: 'E_USAGE', message: 'usage: check_install.mjs --json' }], warnings: [] })}\n`);
     return 2;
   }
-  const result = await checkInstall(dependencies);
+  let result;
+  try {
+    result = await checkInstall(dependencies);
+  } catch (error) {
+    result = {
+      ok: false,
+      versions: { node: null, ffmpeg: null, ffprobe: null, sharp: null },
+      filters: {},
+      scaffolds: {},
+      warnings: [],
+      errors: [{ code: 'E_CAPABILITY_CHECK', message: error instanceof Error ? error.message : String(error) }],
+    };
+  }
   write(`${JSON.stringify(result)}\n`);
   return result.ok ? 0 : 1;
 }

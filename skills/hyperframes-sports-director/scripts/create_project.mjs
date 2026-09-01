@@ -101,10 +101,12 @@ async function resumeProject(options, resolved) {
   }
   const selection = projectValidation.value.profiles;
   const lineage = projectValidation.value.integrity.upstream;
+  const stateLineage = stateValidation.value.integrity.upstream;
   if (selection.sport !== resolved.sport || selection.device !== resolved.device
     || selection.delivery !== resolved.delivery || selection.sportMaturity !== resolved.maturity
     || Object.keys(lineage).length !== Object.keys(resolved.profileDigests).length
-    || Object.entries(resolved.profileDigests).some(([role, digest]) => lineage[role] !== digest)) {
+    || Object.entries(resolved.profileDigests).some(([role, digest]) => lineage[role] !== digest)
+    || Object.keys(stateLineage).length !== 1 || stateLineage.project !== projectValidation.value.integrity.digest) {
     throw new ProjectCreationError('E_RESUME_INCOMPATIBLE', 'resume profile selections do not match the existing project');
   }
   return { ok: true, project: options.project, resumed: true, state: stateValidation.value.state };
@@ -163,6 +165,7 @@ export async function createProject(options) {
 
   const projectState = await readTemplate('PROJECT_STATE');
   projectState.stateEnteredAt = timestamp;
+  projectState.integrity.upstream = { project: projectDocument.integrity.digest };
   await writeJson(join(options.project, 'PROJECT_STATE.json'), projectState);
 
   const brief = await readTemplate('EDIT_BRIEF');

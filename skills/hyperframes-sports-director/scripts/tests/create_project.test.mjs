@@ -6,7 +6,7 @@ import { basename, join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { computeArtifactDigest, validateArtifact } from '../lib/contracts.mjs';
+import { computeArtifactDigest, loadSchema, validateArtifact, validateDocument } from '../lib/contracts.mjs';
 import { createProject } from '../create_project.mjs';
 import { computeInvalidationClosure, rollbackStateForInvalidation } from '../lib/invalidation.mjs';
 import { validateTransition } from '../lib/project-state.mjs';
@@ -93,14 +93,17 @@ function options(project, input, overrides = {}) {
   };
 }
 
-function evidenceRecord(role, qualifiers = ['accepted'], digest = DIGEST) {
+function evidenceRecord(gate, role, qualifiers = ['accepted'], digest = DIGEST) {
   return {
+    gate,
     role,
     revision: 1,
     digest,
     timestamp: NOW,
     producerCommand: `test-producer --role ${role}`,
     qualifiers,
+    validity: 'valid',
+    invalidatedAt: null,
   };
 }
 
@@ -108,26 +111,54 @@ function evidenceFor(next) {
   let records;
   if (next === 'STYLE_ANCHOR') {
     records = [
-      evidenceRecord('DESIGN_SYSTEM', ['frozen']),
-      evidenceRecord('LOOK_PROFILE', ['frozen']),
-      evidenceRecord('ASSET_PLAN', ['approved']),
+      evidenceRecord(next, 'DESIGN_SYSTEM', ['frozen']),
+      evidenceRecord(next, 'LOOK_PROFILE', ['frozen']),
+      evidenceRecord(next, 'ASSET_PLAN', ['approved']),
     ];
   } else if (next === 'ASSET_PRODUCTION') {
     records = [
-      evidenceRecord('STYLE_ANCHOR', ['accepted']),
-      evidenceRecord('REPRESENTATIVE_COMBINATION', ['accepted']),
+      evidenceRecord(next, 'STYLE_ANCHOR', ['accepted']),
+      evidenceRecord(next, 'REPRESENTATIVE_COMBINATION', ['accepted']),
     ];
   } else if (next === 'DELIVERED') {
     records = [
-      evidenceRecord('CLOSED_FILE_PROBE', ['passed']),
-      evidenceRecord('HARD_GATES', ['passed']),
-      evidenceRecord('AGENT_VISUAL_INSPECTION', ['accepted']),
-      evidenceRecord('ENCODED_MP4_EVIDENCE', ['accepted']),
+      evidenceRecord(next, 'CLOSED_FILE_PROBE', ['passed']),
+      evidenceRecord(next, 'HARD_GATES', ['passed']),
+      evidenceRecord(next, 'AGENT_VISUAL_INSPECTION', ['accepted']),
+      evidenceRecord(next, 'ENCODED_MP4_EVIDENCE', ['accepted']),
     ];
   } else {
-    records = [evidenceRecord(`${next}_GATE`)];
+    records = [evidenceRecord(next, `${next}_GATE`)];
   }
-  return { records, currentDigests: Object.fromEntries(records.map((record) => [record.role, record.digest])) };
+  return {
+    records,
+    currentArtifacts: Object.fromEntries(records.map((record) => [record.role, { revision: record.revision, digest: record.digest }])),
+  };
+}
+
+function persistedStateAt(base, state) {
+  if (state === 'INTAKE') return structuredClone(base);
+  const route = MAIN_STATES.slice(0, MAIN_STATES.indexOf(state) + 1);
+  const gateEvidence = [];
+  const transitions = route.slice(1).map((to, index) => {
+    const at = `2026-09-01T00:${String(index).padStart(2, '0')}:00.000Z`;
+    const records = evidenceFor(to).records.map((record, roleIndex) => ({
+      ...record,
+      revision: index + 1,
+      digest: `${index + 1}${roleIndex + 1}`.padStart(64, '0'),
+      timestamp: at,
+    }));
+    gateEvidence.push(...records);
+    return {
+      from: route[index], to, at,
+      evidenceDigests: Object.fromEntries(records.map(({ role, digest }) => [role, digest])),
+      evidenceRevisions: Object.fromEntries(records.map(({ role, revision }) => [role, revision])),
+    };
+  });
+  return {
+    ...structuredClone(base), state, previousState: transitions.at(-1).from,
+    stateEnteredAt: transitions.at(-1).at, transitions, gateEvidence, invalidations: [],
+  };
 }
 
 test('createProject builds the exact v1 artifact tree from valid draft templates without copying reference media', async (t) => {
@@ -167,6 +198,8 @@ test('createProject builds the exact v1 artifact tree from valid draft templates
   assert.equal(JSON.stringify(projectDocument).includes(input), false, 'portable project JSON does not expose the absolute input path');
   assert.equal((await validateArtifact(join(project, 'PROJECT.json'), 'project')).valid, true);
   assert.equal((await validateArtifact(join(project, 'PROJECT_STATE.json'), 'project-state')).valid, true);
+  const stateDocument = JSON.parse(await readFile(join(project, 'PROJECT_STATE.json'), 'utf8'));
+  assert.deepEqual(stateDocument.integrity.upstream, { project: projectDocument.integrity.digest });
 
   const brief = JSON.parse(await readFile(join(project, 'EDIT_BRIEF.json'), 'utf8'));
   assert.deepEqual(brief.sport, { profile: 'cycling' });
@@ -270,6 +303,71 @@ test('createProject rejects project destinations inside the immutable input tree
   assert.deepEqual(await listTree(input), before);
 });
 
+test('resume rejects a swapped same-profile state and any PROJECT revision or digest not bound by PROJECT_STATE', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hyperframes-resume-binding-'));
+  t.after(async () => {
+    const { rm } = await import('node:fs/promises');
+    await rm(scratch, { recursive: true, force: true });
+  });
+  const input = join(scratch, 'input');
+  const first = join(scratch, 'first');
+  const second = join(scratch, 'second');
+  await mkdir(input);
+  await createProject(options(first, input));
+  await createProject(options(second, input));
+  const firstStatePath = join(first, 'PROJECT_STATE.json');
+  const originalState = await readFile(firstStatePath, 'utf8');
+  await writeFile(firstStatePath, await readFile(join(second, 'PROJECT_STATE.json'), 'utf8'));
+  await assert.rejects(createProject(options(first, input, { resume: true })), (error) => error.code === 'E_RESUME_INCOMPATIBLE');
+  await writeFile(firstStatePath, originalState);
+
+  const projectPath = join(first, 'PROJECT.json');
+  const project = JSON.parse(await readFile(projectPath, 'utf8'));
+  project.revision += 1;
+  project.updatedAt = '2026-09-01T13:00:00.000Z';
+  project.integrity.digest = computeArtifactDigest(project);
+  await writeFile(projectPath, `${JSON.stringify(project, null, 2)}\n`);
+  await assert.rejects(createProject(options(first, input, { resume: true })), (error) => error.code === 'E_RESUME_INCOMPATIBLE');
+});
+
+test('resume rejects persisted special-gate evidence bypasses even when PROJECT_STATE integrity is restamped', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hyperframes-resume-gates-'));
+  t.after(async () => {
+    const { rm } = await import('node:fs/promises');
+    await rm(scratch, { recursive: true, force: true });
+  });
+  const input = join(scratch, 'input');
+  const projectRoot = join(scratch, 'project');
+  await mkdir(input);
+  await createProject(options(projectRoot, input));
+  const statePath = join(projectRoot, 'PROJECT_STATE.json');
+  const initial = JSON.parse(await readFile(statePath, 'utf8'));
+  const delivered = persistedStateAt(initial, 'DELIVERED');
+  const mutations = [
+    (value) => {
+      const transition = value.transitions.at(-1);
+      value.gateEvidence = value.gateEvidence.filter(({ role }) => role !== 'CLOSED_FILE_PROBE');
+      delete transition.evidenceDigests.CLOSED_FILE_PROBE;
+      delete transition.evidenceRevisions.CLOSED_FILE_PROBE;
+      const generic = evidenceRecord('DELIVERED', 'DELIVERED_GATE');
+      value.gateEvidence.push(generic);
+      transition.evidenceDigests.DELIVERED_GATE = generic.digest;
+      transition.evidenceRevisions.DELIVERED_GATE = generic.revision;
+    },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'HARD_GATES').qualifiers = ['accepted']; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'AGENT_VISUAL_INSPECTION').revision += 1; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'ENCODED_MP4_EVIDENCE').gate = 'FINAL_QA'; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'ENCODED_MP4_EVIDENCE').digest = 'f'.repeat(64); },
+  ];
+  for (const mutate of mutations) {
+    const bypass = structuredClone(delivered);
+    mutate(bypass);
+    bypass.integrity.digest = computeArtifactDigest(bypass);
+    await writeFile(statePath, `${JSON.stringify(bypass, null, 2)}\n`);
+    await assert.rejects(createProject(options(projectRoot, input, { resume: true })), (error) => error.code === 'E_RESUME_INVALID');
+  }
+});
+
 test('create_project CLI prints one JSON result and machine-readable errors', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'hyperframes-create-cli-'));
   t.after(async () => {
@@ -317,12 +415,12 @@ test('validateTransition enumerates every allowed and forbidden state edge befor
     }
   }
   assert.throws(
-    () => validateTransition('ANALYZE', 'STYLE_ANCHOR', { records: [], currentDigests: {} }),
+    () => validateTransition('ANALYZE', 'STYLE_ANCHOR', { records: [], currentArtifacts: {} }),
     (error) => error.code === 'E_STATE_TRANSITION',
     'production Image Gen cannot skip the director lock',
   );
   assert.throws(
-    () => validateTransition('ANALYZE', 'FINAL_RENDER', { records: [], currentDigests: {} }),
+    () => validateTransition('ANALYZE', 'FINAL_RENDER', { records: [], currentArtifacts: {} }),
     (error) => error.code === 'E_STATE_TRANSITION',
     'final rendering cannot skip the director lock',
   );
@@ -330,17 +428,33 @@ test('validateTransition enumerates every allowed and forbidden state edge befor
 
 test('validateTransition enforces current auditable evidence and the Style Anchor, asset, and delivery hard gates', () => {
   assert.throws(
-    () => validateTransition('ANALYZE', 'ROUGH_CUT', { records: [], currentDigests: {} }),
+    () => validateTransition('ANALYZE', 'ROUGH_CUT', { records: [], currentArtifacts: {} }),
     (error) => error.code === 'E_EVIDENCE_REQUIRED',
   );
   assert.equal(validateTransition('ANALYZE', 'ROUGH_CUT', evidenceFor('ROUGH_CUT')), true, 'proxy rough cuts are permitted before approval');
 
   const stale = evidenceFor('ROUGH_CUT');
-  stale.currentDigests.ROUGH_CUT_GATE = 'b'.repeat(64);
+  stale.currentArtifacts.ROUGH_CUT_GATE.digest = 'b'.repeat(64);
   assert.throws(
     () => validateTransition('ANALYZE', 'ROUGH_CUT', stale),
     (error) => error.code === 'E_STALE_EVIDENCE',
   );
+  const staleRevision = evidenceFor('ROUGH_CUT');
+  staleRevision.currentArtifacts.ROUGH_CUT_GATE.revision = 2;
+  assert.throws(() => validateTransition('ANALYZE', 'ROUGH_CUT', staleRevision), (error) => error.code === 'E_STALE_EVIDENCE');
+  const wrongGate = evidenceFor('ROUGH_CUT');
+  wrongGate.records[0].gate = 'ANALYZE';
+  assert.throws(() => validateTransition('ANALYZE', 'ROUGH_CUT', wrongGate), (error) => error.code === 'E_EVIDENCE_INVALID');
+  const nonIso = evidenceFor('ROUGH_CUT');
+  nonIso.records[0].timestamp = '09/01/2026 12:00';
+  assert.throws(() => validateTransition('ANALYZE', 'ROUGH_CUT', nonIso), (error) => error.code === 'E_EVIDENCE_INVALID');
+  const duplicateQualifier = evidenceFor('ROUGH_CUT');
+  duplicateQualifier.records[0].qualifiers = ['accepted', 'accepted'];
+  assert.throws(() => validateTransition('ANALYZE', 'ROUGH_CUT', duplicateQualifier), (error) => error.code === 'E_EVIDENCE_INVALID');
+  const invalidated = evidenceFor('ROUGH_CUT');
+  invalidated.records[0].validity = 'invalidated';
+  invalidated.records[0].invalidatedAt = NOW;
+  assert.throws(() => validateTransition('ANALYZE', 'ROUGH_CUT', invalidated), (error) => error.code === 'E_EVIDENCE_INVALID');
   const incomplete = evidenceFor('ROUGH_CUT');
   delete incomplete.records[0].producerCommand;
   assert.throws(
@@ -375,7 +489,7 @@ test('validateTransition enforces current auditable evidence and the Style Ancho
   assert.throws(() => validateTransition('CANCELLED', 'DELIVERED', evidenceFor('DELIVERED')), (error) => error.code === 'E_STATE_TRANSITION');
 });
 
-test('invalidation closure rolls back downstream work without touching media/activity facts or frozen digests', () => {
+test('invalidation closure produces contract-valid auditable rollback and frozen-boundary BLOCKED states without mutation', async () => {
   const graph = {
     MEDIA_INDEX: ['PROBE'],
     PROBE: ['TIMELINE'],
@@ -396,21 +510,50 @@ test('invalidation closure rolls back downstream work without touching media/act
     ['DESIGN_SYSTEM', 'ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'],
   );
 
-  const projectState = {
-    state: 'FINAL_QA',
-    revision: 12,
-    frozenDesignDigest: 'd'.repeat(64),
-    frozenLookDigest: 'e'.repeat(64),
-  };
+  const base = JSON.parse(await readFile(`${ROOT}/templates/PROJECT_STATE.template.json`, 'utf8'));
+  const projectState = persistedStateAt(base, 'FINAL_QA');
+  projectState.revision = 12;
+  projectState.integrity.digest = computeArtifactDigest(projectState);
   const snapshot = structuredClone(projectState);
-  const timelineRollback = rollbackStateForInvalidation(projectState, ['TIMELINE', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW']);
+  const timelineRollback = rollbackStateForInvalidation(
+    projectState,
+    ['TIMELINE', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'],
+    { timestamp: '2026-09-01T12:30:00.000Z', producerCommand: 'invalidate --changed TIMELINE' },
+  );
   assert.equal(timelineRollback.state, 'ASSET_PRODUCTION');
-  assert.equal(timelineRollback.frozenDesignDigest, snapshot.frozenDesignDigest);
-  assert.equal(timelineRollback.frozenLookDigest, snapshot.frozenLookDigest);
+  assert.equal(timelineRollback.previousState, 'FINAL_QA');
+  assert.equal(timelineRollback.stateEnteredAt, '2026-09-01T12:30:00.000Z');
+  assert.equal(timelineRollback.transitions.at(-1).kind, 'invalidation');
+  assert.equal(timelineRollback.transitions.at(-1).rollbackTarget, 'ASSET_PRODUCTION');
+  assert.deepEqual(timelineRollback.invalidations.at(-1).invalidatedRoles, ['TIMELINE', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW']);
+  assert.ok(timelineRollback.gateEvidence.some((record) => record.gate === 'MOTION_COMPOSITION' && record.validity === 'invalidated' && record.invalidatedAt === '2026-09-01T12:30:00.000Z'));
+  assert.ok(timelineRollback.gateEvidence.filter((record) => record.gate === 'ASSET_PRODUCTION').every((record) => record.validity === 'valid'));
+  assert.equal(timelineRollback.gateEvidence.at(-1).validity, 'valid');
+  assert.equal(timelineRollback.revision, 13);
+  const timelineValidation = validateDocument(await loadSchema('project-state'), timelineRollback);
+  assert.equal(timelineValidation.valid, true, JSON.stringify(timelineValidation.errors));
+  assert.equal(timelineRollback.integrity.digest, computeArtifactDigest(timelineRollback));
   assert.deepEqual(projectState, snapshot, 'bounded downstream correction is pure');
 
-  const frozenBoundary = rollbackStateForInvalidation(projectState, ['DESIGN_SYSTEM', 'ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW']);
+  const frozenBoundary = rollbackStateForInvalidation(
+    projectState,
+    ['DESIGN_SYSTEM', 'ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'],
+    { timestamp: '2026-09-01T12:31:00.000Z', producerCommand: 'invalidate --changed DESIGN_SYSTEM' },
+  );
   assert.equal(frozenBoundary.state, 'BLOCKED', 'a frozen design change never reopens or requests approval');
-  assert.equal(frozenBoundary.frozenDesignDigest, snapshot.frozenDesignDigest);
-  assert.equal(frozenBoundary.frozenLookDigest, snapshot.frozenLookDigest);
+  assert.equal(frozenBoundary.transitions.at(-1).rollbackTarget, 'DIRECTOR_REVIEW_READY');
+  assert.ok(frozenBoundary.gateEvidence.at(-1).qualifiers.includes('approval-boundary-crossed'));
+  assert.ok(frozenBoundary.gateEvidence.filter((record) => record.gate === 'DIRECTOR_LOCK').every((record) => record.validity === 'invalidated'));
+  const frozenValidation = validateDocument(await loadSchema('project-state'), frozenBoundary);
+  assert.equal(frozenValidation.valid, true, JSON.stringify(frozenValidation.errors));
+  const falseApprovalBoundary = structuredClone(frozenBoundary);
+  falseApprovalBoundary.invalidations.at(-1).invalidatedRoles = ['ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'];
+  assert.equal(validateDocument(await loadSchema('project-state'), falseApprovalBoundary).valid, false);
+  const forgedInvalidationDigest = structuredClone(timelineRollback);
+  forgedInvalidationDigest.invalidations.at(-1).evidenceDigest = 'f'.repeat(64);
+  forgedInvalidationDigest.transitions.at(-1).evidenceDigests.INVALIDATION = 'f'.repeat(64);
+  forgedInvalidationDigest.gateEvidence.at(-1).digest = 'f'.repeat(64);
+  forgedInvalidationDigest.integrity.digest = computeArtifactDigest(forgedInvalidationDigest);
+  assert.equal(validateDocument(await loadSchema('project-state'), forgedInvalidationDigest).valid, false);
+  assert.deepEqual(projectState, snapshot);
 });

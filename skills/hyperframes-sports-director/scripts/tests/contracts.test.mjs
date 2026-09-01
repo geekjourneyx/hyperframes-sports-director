@@ -63,6 +63,18 @@ function stampIntegrity(value) {
   return value;
 }
 
+function gateSpecifications(state) {
+  if (state === 'STYLE_ANCHOR') return [['DESIGN_SYSTEM', 'frozen'], ['LOOK_PROFILE', 'frozen'], ['ASSET_PLAN', 'approved']];
+  if (state === 'ASSET_PRODUCTION') return [['STYLE_ANCHOR', 'accepted'], ['REPRESENTATIVE_COMBINATION', 'accepted']];
+  if (state === 'DELIVERED') {
+    return [
+      ['CLOSED_FILE_PROBE', 'passed'], ['HARD_GATES', 'passed'],
+      ['AGENT_VISUAL_INSPECTION', 'accepted'], ['ENCODED_MP4_EVIDENCE', 'accepted'],
+    ];
+  }
+  return [[`${state}_GATE`, 'accepted']];
+}
+
 function projectStateAt(base, state) {
   if (state === 'INTAKE') return clone(base);
   const mainStates = [
@@ -73,14 +85,27 @@ function projectStateAt(base, state) {
   const route = ['BLOCKED', 'CANCELLED'].includes(state)
     ? ['INTAKE', state]
     : mainStates.slice(0, mainStates.indexOf(state) + 1);
+  const gateEvidence = [];
   const transitions = route.slice(1).map((to, index) => {
-    const digest = (index + 1).toString(16).padStart(64, '0');
-    const role = `${to}_GATE`;
+    const at = `2026-09-01T00:${String(index).padStart(2, '0')}:00.000Z`;
+    const records = gateSpecifications(to).map(([role, qualifier], roleIndex) => ({
+      gate: to,
+      role,
+      revision: index + 1,
+      digest: `${index + 1}${roleIndex + 1}`.padStart(64, '0'),
+      timestamp: at,
+      producerCommand: `test-gate --state ${to}`,
+      qualifiers: [qualifier],
+      validity: 'valid',
+      invalidatedAt: null,
+    }));
+    gateEvidence.push(...records);
     return {
       from: route[index],
       to,
-      at: `2026-09-01T00:${String(index).padStart(2, '0')}:00.000Z`,
-      evidenceDigests: { [role]: digest },
+      at,
+      evidenceDigests: Object.fromEntries(records.map(({ role, digest }) => [role, digest])),
+      evidenceRevisions: Object.fromEntries(records.map(({ role, revision }) => [role, revision])),
     };
   });
   const last = transitions.at(-1);
@@ -90,18 +115,8 @@ function projectStateAt(base, state) {
     previousState: last.from,
     stateEnteredAt: last.at,
     transitions,
-    gateEvidence: transitions.map((transition) => {
-      const [role, digest] = Object.entries(transition.evidenceDigests)[0];
-      return {
-        gate: transition.to,
-        role,
-        revision: 1,
-        digest,
-        timestamp: transition.at,
-        producerCommand: `test-gate --state ${transition.to}`,
-        qualifiers: ['accepted'],
-      };
-    }),
+    invalidations: [],
+    gateEvidence,
   };
 }
 
@@ -416,10 +431,10 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   }
   const validStateHistory = projectStateAt(projectState, 'DELIVERED');
   assertValid(schemas['project-state'], validStateHistory, 'main lifecycle transitions are ordered');
-  assert.equal(validStateHistory.gateEvidence.length, validStateHistory.transitions.length);
+  assert.ok(validStateHistory.gateEvidence.length >= validStateHistory.transitions.length);
   assert.deepEqual(
     Object.keys(validStateHistory.gateEvidence[0]).sort(),
-    ['digest', 'gate', 'producerCommand', 'qualifiers', 'revision', 'role', 'timestamp'],
+    ['digest', 'gate', 'invalidatedAt', 'producerCommand', 'qualifiers', 'revision', 'role', 'timestamp', 'validity'],
   );
   const unauditableHistory = clone(validStateHistory);
   unauditableHistory.gateEvidence.splice(2, 1);
@@ -427,6 +442,37 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   const unboundHistory = clone(validStateHistory);
   unboundHistory.gateEvidence[2].digest = 'f'.repeat(64);
   assertInvalid(schemas['project-state'], unboundHistory, 'gate evidence digest binds to its transition role');
+  for (const mutation of [
+    (value) => { value.gateEvidence.find(({ role }) => role === 'CLOSED_FILE_PROBE').role = 'DELIVERED_GATE'; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'HARD_GATES').qualifiers = ['accepted']; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'AGENT_VISUAL_INSPECTION').revision += 1; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'ENCODED_MP4_EVIDENCE').gate = 'FINAL_QA'; },
+    (value) => { value.gateEvidence.find(({ role }) => role === 'ENCODED_MP4_EVIDENCE').qualifiers = ['accepted', 'accepted']; },
+  ]) {
+    const bypass = clone(validStateHistory);
+    mutation(bypass);
+    assertInvalid(schemas['project-state'], bypass, 'DELIVERED rejects wrong role, qualifier, revision, gate, or duplicate qualifier');
+  }
+  const invalidCurrentGate = clone(validStateHistory);
+  for (const record of invalidCurrentGate.gateEvidence.filter(({ gate }) => gate === 'DELIVERED')) {
+    record.validity = 'invalidated';
+    record.invalidatedAt = '2026-09-01T01:00:00.000Z';
+  }
+  assertInvalid(schemas['project-state'], invalidCurrentGate, 'the current gate cannot rely on invalidated evidence');
+  const inconsistentValidity = clone(validStateHistory);
+  inconsistentValidity.gateEvidence[0].invalidatedAt = '2026-09-01T01:00:00.000Z';
+  assertInvalid(schemas['project-state'], inconsistentValidity, 'valid evidence cannot carry an invalidation timestamp');
+  for (const [state, role, qualifier] of [
+    ['STYLE_ANCHOR', 'DESIGN_SYSTEM', 'frozen'],
+    ['STYLE_ANCHOR', 'LOOK_PROFILE', 'frozen'],
+    ['STYLE_ANCHOR', 'ASSET_PLAN', 'approved'],
+    ['ASSET_PRODUCTION', 'STYLE_ANCHOR', 'accepted'],
+    ['ASSET_PRODUCTION', 'REPRESENTATIVE_COMBINATION', 'accepted'],
+  ]) {
+    const bypass = projectStateAt(projectState, state);
+    bypass.gateEvidence.find((record) => record.role === role).qualifiers = [qualifier === 'frozen' ? 'approved' : 'passed'];
+    assertInvalid(schemas['project-state'], bypass, `${state} requires ${role} with ${qualifier}`);
+  }
   const skippedState = clone(validStateHistory);
   skippedState.transitions[0].to = 'SCAN';
   assertInvalid(schemas['project-state'], skippedState, 'state transitions cannot skip required gates');
@@ -435,6 +481,7 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   exitedTerminalState.transitions = [{
     from: 'BLOCKED', to: 'CANCELLED', at: '2026-09-01T00:00:00.000Z',
     evidenceDigests: { gate: '1'.repeat(64) },
+    evidenceRevisions: { gate: 1 },
   }];
   assertInvalid(schemas['project-state'], exitedTerminalState, 'terminal side states have no outgoing transitions');
 
@@ -471,6 +518,12 @@ test('project lifecycle requires auditable gate history before non-intake states
   const initial = await template('PROJECT_STATE');
   const historylessDelivery = { ...clone(initial), state: 'DELIVERED' };
   assertInvalid(schema, historylessDelivery, 'DELIVERED cannot omit all gates');
+  const orphanInvalidation = clone(initial);
+  orphanInvalidation.invalidations.push({
+    at: '2026-09-01T00:00:00.000Z', fromState: 'INTAKE', rollbackTarget: 'INTAKE',
+    disposition: 'rollback', invalidatedRoles: ['TIMELINE'], evidenceDigest: 'a'.repeat(64),
+  });
+  assertInvalid(schema, orphanInvalidation, 'INTAKE cannot carry an invalidation without transition history');
 
   const delivered = projectStateAt(initial, 'DELIVERED');
   assertValid(schema, delivered, 'DELIVERED accepts a contiguous INTAKE-rooted history');

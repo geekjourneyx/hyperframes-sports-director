@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hyperframes.local/schemas/project-state.schema.json",
   "type": "object",
-  "required": ["$schema", "schemaVersion", "revision", "state", "previousState", "stateEnteredAt", "transitions", "gateEvidence", "integrity"],
+  "required": ["$schema", "schemaVersion", "revision", "state", "previousState", "stateEnteredAt", "transitions", "gateEvidence", "invalidations", "integrity"],
   "properties": {
     "$schema": { "const": "https://hyperframes.local/schemas/project-state.schema.json" },
     "schemaVersion": { "const": "1.0.0" },
@@ -12,6 +12,7 @@
     "stateEnteredAt": { "type": "string", "format": "date-time" },
     "transitions": { "type": "array", "items": { "$ref": "#/$defs/transition" } },
     "gateEvidence": { "type": "array", "items": { "$ref": "#/$defs/gateEvidence" } },
+    "invalidations": { "type": "array", "items": { "$ref": "#/$defs/invalidation" } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
   "additionalProperties": false,
@@ -20,7 +21,7 @@
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "gateEvidence": {
       "type": "object",
-      "required": ["gate", "role", "revision", "digest", "timestamp", "producerCommand", "qualifiers"],
+      "required": ["gate", "role", "revision", "digest", "timestamp", "producerCommand", "qualifiers", "validity", "invalidatedAt"],
       "additionalProperties": false,
       "properties": {
         "gate": { "type": "string", "minLength": 1 },
@@ -29,10 +30,13 @@
         "digest": { "$ref": "#/$defs/digest" },
         "timestamp": { "type": "string", "format": "date-time" },
         "producerCommand": { "type": "string", "minLength": 1 },
-        "qualifiers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+        "qualifiers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "validity": { "enum": ["valid", "invalidated"] },
+        "invalidatedAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
       }
     },
-    "transition": { "type": "object", "required": ["from", "to", "at", "evidenceDigests"], "additionalProperties": false, "properties": { "from": { "$ref": "#/$defs/state" }, "to": { "$ref": "#/$defs/state" }, "at": { "type": "string", "format": "date-time" }, "evidenceDigests": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/digest" } } } },
+    "transition": { "type": "object", "required": ["from", "to", "at", "evidenceDigests", "evidenceRevisions"], "additionalProperties": false, "properties": { "from": { "$ref": "#/$defs/state" }, "to": { "$ref": "#/$defs/state" }, "at": { "type": "string", "format": "date-time" }, "kind": { "const": "invalidation" }, "rollbackTarget": { "$ref": "#/$defs/state" }, "evidenceDigests": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/digest" } }, "evidenceRevisions": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "integer", "minimum": 1 } } } },
+    "invalidation": { "type": "object", "required": ["at", "fromState", "rollbackTarget", "disposition", "invalidatedRoles", "evidenceDigest"], "additionalProperties": false, "properties": { "at": { "type": "string", "format": "date-time" }, "fromState": { "$ref": "#/$defs/state" }, "rollbackTarget": { "$ref": "#/$defs/state" }, "disposition": { "enum": ["rollback", "blocked"] }, "invalidatedRoles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }, "evidenceDigest": { "$ref": "#/$defs/digest" } } },
     "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
   }
 }
