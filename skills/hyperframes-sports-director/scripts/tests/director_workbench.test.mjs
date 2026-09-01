@@ -517,8 +517,20 @@ test('proposal compiler rejects delimiter-embedded paths, three-decimal GPS, and
       message: 'prototype SVG text contains an absolute path',
     },
     {
+      mutation: 'absolute POSIX path recognizer excludes a label colon boundary',
+      content: '<text>source:/Users/alice/private/session</text>',
+      code: 'E_REFERENCE_ABSOLUTE',
+      message: 'prototype SVG text contains an absolute path',
+    },
+    {
       mutation: 'absolute Windows path recognizer drops punctuation-boundary handling',
       content: '<title>source=C:\\Users\\Alice\\private\\session</title>',
+      code: 'E_REFERENCE_ABSOLUTE',
+      message: 'prototype SVG text contains an absolute path',
+    },
+    {
+      mutation: 'absolute Windows path recognizer excludes a label colon boundary',
+      content: '<text>source:C:\\Users\\Alice\\private</text>',
       code: 'E_REFERENCE_ABSOLUTE',
       message: 'prototype SVG text contains an absolute path',
     },
