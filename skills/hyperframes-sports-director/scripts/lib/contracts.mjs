@@ -25,6 +25,13 @@ const METRIC_AUTHORITY_KEYS = {
   movingTime: 'movingTime',
   averageSpeed: 'speed',
   elevationGain: 'elevationGain',
+  averagePower: 'power',
+  averageCadence: 'cadence',
+  averageTemperature: 'temperature',
+  pace: 'pace',
+  pauseTime: 'pauseTime',
+  calories: 'calories',
+  gradeDistribution: 'gradeDistribution',
 };
 const MAIN_STATES = [
   'INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT',
@@ -278,6 +285,38 @@ function checkActivity(value, schema, errors) {
   if (value.status === 'unavailable' && availableCount !== 0) {
     addSemantic(errors, schema, 'E_ACTIVITY_STATUS', '/status', 'unavailable activity requires every metric tuple to be unavailable');
   }
+  const routeAvailable = value.route.status === 'available';
+  const routeTupleAvailable = value.availability.route === 'available'
+    && value.coverage.route !== null && typeof value.sources.route === 'string'
+    && value.reasons.route === null;
+  if (routeAvailable !== routeTupleAvailable
+    || (routeAvailable && (value.route.pointCount !== value.route.points.length || value.route.points.length < 2
+      || value.route.trimmedRouteId !== `trimmed-route-${createHash('sha256').update(JSON.stringify(value.route.points)).digest('hex').slice(0, 16)}`))
+    || (!routeAvailable && (value.route.pointCount !== 0 || value.route.points.length !== 0 || value.route.trimmedRouteId !== null))) {
+    addSemantic(errors, schema, 'E_ACTIVITY_ROUTE', '/route', 'public route must be an internally consistent, privacy-trimmed derivative');
+  }
+}
+
+function checkSyncMap(value, schema, errors) {
+  if (value.status === 'unavailable') {
+    if (value.method !== 'none' || value.anchors.length !== 0 || value.confidence !== null
+      || value.residualErrorSeconds !== null || value.validInterval !== null) {
+      addSemantic(errors, schema, 'E_SYNC_UNAVAILABLE', '/', 'unavailable sync must not claim method, anchors, confidence, residual, or interval');
+    }
+    return;
+  }
+  if (value.method === 'none' || value.anchors.length === 0 || value.confidence === null
+    || value.residualErrorSeconds === null || value.validInterval === null
+    || value.validInterval.startSeconds >= value.validInterval.endSeconds) {
+    addSemantic(errors, schema, 'E_SYNC_AVAILABLE', '/', 'available sync requires a method, ordered anchors, confidence, residual, and a valid interval');
+    return;
+  }
+  for (let index = 1; index < value.anchors.length; index += 1) {
+    if (value.anchors[index].mediaSeconds <= value.anchors[index - 1].mediaSeconds
+      || value.anchors[index].activitySeconds <= value.anchors[index - 1].activitySeconds) {
+      addSemantic(errors, schema, 'E_SYNC_ANCHOR_ORDER', `/anchors/${index}`, 'sync anchors must be strictly ordered and non-duplicated on both time axes');
+    }
+  }
 }
 
 function checkProbeReviewPaths(value, schema, errors) {
@@ -402,6 +441,7 @@ function semanticErrors(schema, value) {
     }
   }
   if (name === 'activity') checkActivity(value, schema, errors);
+  if (name === 'sync-map') checkSyncMap(value, schema, errors);
   if (name === 'data-overlays' && value.status === 'available') {
     checkExactLineage(value, schema, errors, { activity: value.activityDigest, syncMap: value.syncMapDigest });
   }

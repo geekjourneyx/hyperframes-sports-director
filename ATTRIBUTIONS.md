@@ -14,3 +14,15 @@ contract ideas from the following AGPL-3.0 projects, frozen in
 Adapted files must retain their applicable upstream copyright and license
 notices. `docs/upstream-derivation.md` records retained, adapted, and
 independently implemented responsibilities.
+
+## File-level derivation records
+
+- `skills/hyperframes-sports-director/scripts/lib/activity.mjs` and
+  `skills/hyperframes-sports-director/scripts/analyze_activity.mjs` adapt the
+  Guizang Sports Skill's activity-report, deterministic metric, staged
+  workflow, and local-privacy invariants. The implementation is original to
+  this repository; the source headers retain the AGPL lineage and point to the
+  exact pinned upstream revision.
+- `skills/hyperframes-sports-director/references/activity-data.md` restates the
+  adapted activity truth, availability, coverage, time-sync, and privacy SOP
+  for this project's three-chain architecture.

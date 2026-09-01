@@ -5,6 +5,7 @@
   "status": "unavailable",
   "activityDigest": null,
   "syncMapDigest": null,
+  "publicRoute": { "status": "unavailable", "trimmedRouteId": null },
   "overlays": [],
   "integrity": { "digest": null, "upstream": {} }
 }

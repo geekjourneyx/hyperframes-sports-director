@@ -1,12 +1,11 @@
 {
   "$schema": "https://hyperframes.local/schemas/activity.schema.json",
-  "schemaVersion": "1.0.0",
-  "revision": 1,
-  "status": "unavailable",
-  "metrics": { "averageHeartRate": null, "distance": null, "movingTime": null, "averageSpeed": null, "elevationGain": null },
-  "availability": { "heartRate": "unavailable", "distance": "unavailable", "movingTime": "unavailable", "speed": "unavailable", "elevationGain": "unavailable" },
-  "coverage": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null },
-  "reasons": { "heartRate": "activity-data-unavailable", "distance": "activity-data-unavailable", "movingTime": "activity-data-unavailable", "speed": "activity-data-unavailable", "elevationGain": "activity-data-unavailable" },
-  "sources": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null },
+  "schemaVersion": "1.0.0", "revision": 1, "status": "unavailable",
+  "metrics": { "averageHeartRate": null, "distance": null, "movingTime": null, "averageSpeed": null, "elevationGain": null, "averagePower": null, "averageCadence": null, "averageTemperature": null, "pace": null, "pauseTime": null, "calories": null, "gradeDistribution": null },
+  "availability": { "heartRate": "unavailable", "distance": "unavailable", "movingTime": "unavailable", "speed": "unavailable", "elevationGain": "unavailable", "power": "unavailable", "cadence": "unavailable", "temperature": "unavailable", "pace": "unavailable", "pauseTime": "unavailable", "calories": "unavailable", "gradeDistribution": "unavailable", "route": "unavailable" },
+  "coverage": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null, "power": null, "cadence": null, "temperature": null, "pace": null, "pauseTime": null, "calories": null, "gradeDistribution": null, "route": null },
+  "reasons": { "heartRate": "activity-data-unavailable", "distance": "activity-data-unavailable", "movingTime": "activity-data-unavailable", "speed": "activity-data-unavailable", "elevationGain": "activity-data-unavailable", "power": "activity-data-unavailable", "cadence": "activity-data-unavailable", "temperature": "activity-data-unavailable", "pace": "activity-data-unavailable", "pauseTime": "activity-data-unavailable", "calories": "activity-data-unavailable", "gradeDistribution": "activity-data-unavailable", "route": "activity-data-unavailable" },
+  "sources": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null, "power": null, "cadence": null, "temperature": null, "pace": null, "pauseTime": null, "calories": null, "gradeDistribution": null, "route": null },
+  "sportProfiles": [], "route": { "status": "unavailable", "trimmedRouteId": null, "pointCount": 0, "points": [] },
   "integrity": { "digest": null, "upstream": {} }
 }

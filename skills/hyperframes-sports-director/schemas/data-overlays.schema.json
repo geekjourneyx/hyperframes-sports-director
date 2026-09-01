@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hyperframes.local/schemas/data-overlays.schema.json",
   "type": "object",
-  "required": ["$schema", "schemaVersion", "revision", "status", "activityDigest", "syncMapDigest", "overlays", "integrity"],
+  "required": ["$schema", "schemaVersion", "revision", "status", "activityDigest", "syncMapDigest", "publicRoute", "overlays", "integrity"],
   "properties": {
     "$schema": { "const": "https://hyperframes.local/schemas/data-overlays.schema.json" },
     "schemaVersion": { "const": "1.0.0" },
@@ -10,6 +10,7 @@
     "status": { "enum": ["unavailable", "available"] },
     "activityDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
     "syncMapDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "publicRoute": { "$ref": "#/$defs/publicRoute" },
     "overlays": { "type": "array", "items": { "$ref": "#/$defs/overlay" } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
@@ -21,7 +22,8 @@
   "$defs": {
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "token": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" },
-    "overlay": { "type": "object", "required": ["overlayId", "metricId", "displayAuthority", "syncAuthority", "wording", "colorToken", "destinationInSeconds", "destinationOutSeconds"], "additionalProperties": false, "properties": { "overlayId": { "type": "string", "pattern": "^overlay-[a-zA-Z0-9-]+$" }, "metricId": { "enum": ["metrics.averageHeartRate", "metrics.distance", "metrics.movingTime", "metrics.averageSpeed", "metrics.elevationGain"] }, "displayAuthority": { "enum": ["local-observation", "visible-with-caveat", "chapter-summary", "whole-activity"] }, "syncAuthority": { "enum": ["none", "whole-activity", "chapter", "time-synchronized"] }, "wording": { "type": "string", "minLength": 1 }, "colorToken": { "$ref": "#/$defs/token" }, "destinationInSeconds": { "type": "number", "minimum": 0 }, "destinationOutSeconds": { "type": "number", "exclusiveMinimum": 0 } } },
+    "overlay": { "type": "object", "required": ["overlayId", "metricId", "displayAuthority", "syncAuthority", "wording", "colorToken", "destinationInSeconds", "destinationOutSeconds"], "additionalProperties": false, "properties": { "overlayId": { "type": "string", "pattern": "^overlay-[a-zA-Z0-9-]+$" }, "metricId": { "enum": ["metrics.averageHeartRate", "metrics.distance", "metrics.movingTime", "metrics.averageSpeed", "metrics.elevationGain", "metrics.averagePower", "metrics.averageCadence", "metrics.averageTemperature", "metrics.pace", "metrics.pauseTime", "metrics.calories", "metrics.gradeDistribution"] }, "displayAuthority": { "enum": ["local-observation", "visible-with-caveat", "chapter-summary", "whole-activity"] }, "syncAuthority": { "enum": ["none", "whole-activity", "chapter", "time-synchronized"] }, "wording": { "type": "string", "minLength": 1 }, "colorToken": { "$ref": "#/$defs/token" }, "destinationInSeconds": { "type": "number", "minimum": 0 }, "destinationOutSeconds": { "type": "number", "exclusiveMinimum": 0 } } },
+    "publicRoute": { "type": "object", "required": ["status", "trimmedRouteId"], "additionalProperties": false, "properties": { "status": { "enum": ["available", "unavailable"] }, "trimmedRouteId": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^trimmed-route-[0-9a-f]{16}$" }] } }, "allOf": [{ "if": { "properties": { "status": { "const": "available" } } }, "then": { "properties": { "trimmedRouteId": { "type": "string", "pattern": "^trimmed-route-[0-9a-f]{16}$" } } } }, { "if": { "properties": { "status": { "const": "unavailable" } } }, "then": { "properties": { "trimmedRouteId": { "type": "null" } } } }] },
     "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
   }
 }
