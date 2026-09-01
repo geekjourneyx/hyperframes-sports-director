@@ -9,6 +9,9 @@
 - Keep HyperFrames as the mandatory visual-direction and motion-composition
   core; retain the boundaries between asset manifests, motion maps, and
   timelines.
+- v1 release-grade profiles are cycling, hiking/non-technical mountain
+  journey, and pool swimming. Running, technical mountaineering, trail
+  running, and open-water swimming remain experimental contract coverage.
 
 ## Execution handoff
 
@@ -19,6 +22,9 @@
   uncommitted workspace files are not accepted implementation.
 - Execute one task at a time. Each task must complete its RED, GREEN, full-suite,
   independent review, and remote checkpoint before the next task begins.
+- The recalibrated Task 3 remains the next task. Tasks 10–11 prove the local
+  director-workbench approval and transactional design lock before production
+  Image Gen work begins; do not collapse those gates into the asset task.
 
 ## Evidence, privacy, and media
 
@@ -35,8 +41,17 @@
 
 ## Visual production and render quality
 
-- Before any visual asset generation, freeze exactly one project-level
-  `DESIGN_SYSTEM.json` and one independent `LOOK_PROFILE.json`.
+- Draft design and Look templates must not claim `frozen`. Build the local
+  director workbench from real review derivatives and code-rendered direction
+  prototypes, record one hash-bound `DIRECTOR_APPROVAL.json`, then
+  transactionally freeze exactly one project-level `DESIGN_SYSTEM.json` and
+  one independent `LOOK_PROFILE.json` before production visual generation.
+- The workbench is an evidence and approval view, not an editor or render
+  controller. It must not expose originals, raw GPS, absolute paths, private
+  filenames, remote assets, or a portable/share export.
+- After `DIRECTOR_LOCK`, accept one full-resolution Style Anchor and one
+  representative component/real-footage combination proof before batch asset
+  generation. Require two semantically different final combination proofs.
 - Scenes, titles, overlays, transitions, and generated assets may use only
   semantic color tokens declared by `DESIGN_SYSTEM.json`; scene-local arbitrary
   colors are invalid.
@@ -46,6 +61,9 @@
   least 3:1.
 - After the delivery transform, each rendered semantic-token color must be
   within Delta E 2000 `<=3` of its declared token.
+- Machine-verifiable design facts are hard gates. Composition, density,
+  restraint, pacing, and cross-scene taste require Agent review of decoded
+  final-MP4 evidence and may not be silently reduced to a numeric pass.
 
 ## Completion semantics
 
@@ -57,6 +75,15 @@
   Never treat a plausible filename or process exit code as delivery evidence.
 - When visual inspection is unavailable, report measurable checks without
   claiming visual acceptance.
+- `DELIVERED` requires machine hard gates and Agent inspection of the encoded
+  MP4. Optional `USER_ACCEPTED` is a later signal and must never be inferred.
+- Automatic repair is limited to three attempts per gate and may not change
+  the approved story, key shots, direction, semantic tokens, Look, music,
+  privacy, or delivery contract. Crossing that boundary records `BLOCKED`.
+- A normal v1 run has exactly one `DIRECTOR_LOCK` approval. It must never
+  request an exception or second approval: a user who wants to change an
+  approved boundary starts a separate project revision and approval flow,
+  outside the unattended run.
 
 ## Development discipline
 
