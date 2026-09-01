@@ -425,8 +425,14 @@ function semanticErrors(schema, value) {
   }
   if (name === 'timeline') {
     checkUniqueIds(value.items, 'itemId', '/items', schema, errors);
-    checkBounds(value.items, '/items', schema, errors);
     for (let index = 0; index < value.items.length; index += 1) {
+      const item = value.items[index];
+      if (item.sourceInSeconds >= item.sourceOutSeconds) {
+        addSemantic(errors, schema, 'E_SOURCE_RANGE', `/items/${index}`, 'source out time must be greater than source in time');
+      }
+      if (item.sourceKind !== 'image' && item.sourceOutSeconds > item.sourceDurationSeconds) {
+        addSemantic(errors, schema, 'E_SOURCE_BOUNDS', `/items/${index}/sourceOutSeconds`, 'source range exceeds probed duration');
+      }
       if (value.items[index].destinationInSeconds >= value.items[index].destinationOutSeconds) {
         addSemantic(errors, schema, 'E_DESTINATION_RANGE', `/items/${index}`, 'destination out time must be greater than destination in time');
       }
@@ -437,7 +443,9 @@ function semanticErrors(schema, value) {
       }
     }
     if (value.sourceProbeDigest !== null || value.items.length > 0) {
-      checkExactLineage(value, schema, errors, { probe: value.sourceProbeDigest });
+      if (value.integrity.upstream.probe !== value.sourceProbeDigest) {
+        addSemantic(errors, schema, 'E_UPSTREAM_DIGEST_REFERENCE', '/integrity/upstream/probe', 'probe digest must match sourceProbeDigest');
+      }
     }
   }
   if (name === 'activity') checkActivity(value, schema, errors);

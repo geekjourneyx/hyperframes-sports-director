@@ -11,5 +11,7 @@
   "motionRevision": "motion-1",
   "sourceProbeDigest": null,
   "items": [],
+  "music": { "mode": "none" },
+  "warningDecisions": [],
   "integrity": { "digest": null, "upstream": {} }
 }
