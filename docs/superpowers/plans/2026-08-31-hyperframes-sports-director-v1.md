@@ -25,8 +25,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 5 — project creation, state transitions, and capabilities | Complete | `167998952e3a18071d32482514420c4cdea6f0ef` | Project initialization, auditable gates, invalidation policy, and capability checks are accepted; do not recreate. |
 | 6 — mixed-media scan, probe, and proxies | Complete | `11c67f4268405799fc979b775a40eda58e557c7d` | Immutable ingest, normalized probe, local locator registry, and analysis proxies are accepted; do not recreate. |
 | 7 — segmentation and shot-understanding evidence | Complete | `d24be57065ccd6fadb9dbd39d7b2b7ce7ed1ee29` | Mechanical segmentation, review-safe evidence, contact sheets, and strict Agent-authored shot validation are accepted; do not recreate. |
-| 8 — activity normalization, synchronization, and privacy | Next | — | Continue the isolated Task 8 implementation, then integrate it onto this accepted Task 7 checkpoint before review and acceptance. |
-| 9–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 8 — activity normalization, synchronization, and privacy | Complete | `a916193cf66b7a9da4c999da713b3a20525c9ae6` | Normalized activity truth, synchronization, coverage authority, transactional writes, and privacy-trimmed route derivatives are accepted; do not recreate. |
+| 9 — editorial timeline and approval rough cut | Next | — | Start from current remote `main`; consume the accepted Task 7 shot evidence and optional Task 8 activity authority. |
+| 10–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
