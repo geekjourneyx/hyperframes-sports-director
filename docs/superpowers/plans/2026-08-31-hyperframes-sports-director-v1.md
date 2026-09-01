@@ -28,8 +28,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 8 — activity normalization, synchronization, and privacy | Complete | `a916193cf66b7a9da4c999da713b3a20525c9ae6` | Normalized activity truth, synchronization, coverage authority, transactional writes, and privacy-trimmed route derivatives are accepted; do not recreate. |
 | 9 — editorial timeline and approval rough cut | Complete | `eb6e47d74a3b8a462065123cfc447a33bc8fa361` | Authoritative phase-aware timeline validation, continuity/audio policies, and closed proxy rough-cut evidence are accepted; do not recreate. |
 | 10 — local director workbench and one approval | Complete | `4bfca059bd742a784149c47f30c81d37f6db2c74` | Local workbench, immutable review bundle, localhost session/approval transaction, and privacy-safe SVG direction prototypes are accepted; do not recreate. |
-| 11 — lock approved direction and enforce repair boundaries | Next | — | Consume the one current hash-bound approval and transactionally freeze exactly one design system and one independent Look profile before production visual generation. |
-| 12–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 11 — lock approved direction and enforce repair boundaries | Complete | `492ea9baf3b12a136d939c8ddfa7e693df2adad5` | Transactional single-approval design/Look lock, immutable lock evidence, mutable post-lock workbench, crash recovery, role-aware invalidation, and bounded repair are accepted; do not recreate. |
+| 12 — anchor-first Image Gen assets and combination proofs | Next | — | Consume the committed `DIRECTOR_LOCK`; accept one full-resolution Style Anchor and one representative real-footage/component proof before batch asset production. |
+| 13–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
