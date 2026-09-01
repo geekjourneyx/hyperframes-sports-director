@@ -1,0 +1,16 @@
+{
+  "upstreams": [
+    {
+      "name": "hyperframes-motion-director",
+      "repository": "https://github.com/geekjourneyx/hyperframes-motion-director",
+      "commit": "0b66750322ccb50ae56ace5a8d361da2c1f65400",
+      "license": "AGPL-3.0"
+    },
+    {
+      "name": "guizang-sports-skill",
+      "repository": "https://github.com/op7418/guizang-sports-skill",
+      "commit": "f165bf2993c4eafd5dd91581317c8993230f84e1",
+      "license": "AGPL-3.0"
+    }
+  ]
+}

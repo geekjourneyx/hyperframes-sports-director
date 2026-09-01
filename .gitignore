@@ -4,4 +4,12 @@ dist/
 coverage/
 *.log
 *-workspace/
+cache/
 
+# Project media created from private source material.
+media/originals/
+media/proxies/
+media/renders/
+
+# Generated evaluation media.
+skills/hyperframes-sports-director/evals/generated-media/
