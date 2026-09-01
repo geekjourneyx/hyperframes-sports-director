@@ -58,6 +58,41 @@ function directionCandidate(candidateId) {
   };
 }
 
+function stampIntegrity(value) {
+  value.integrity.digest = computeArtifactDigest(value);
+  return value;
+}
+
+function projectStateAt(base, state) {
+  if (state === 'INTAKE') return clone(base);
+  const mainStates = [
+    'INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT',
+    'DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION',
+    'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED',
+  ];
+  const route = ['BLOCKED', 'CANCELLED'].includes(state)
+    ? ['INTAKE', state]
+    : mainStates.slice(0, mainStates.indexOf(state) + 1);
+  const transitions = route.slice(1).map((to, index) => {
+    const digest = (index + 1).toString(16).padStart(64, '0');
+    return {
+      from: route[index],
+      to,
+      at: `2026-09-01T00:${String(index).padStart(2, '0')}:00.000Z`,
+      evidenceDigests: { gate: digest },
+    };
+  });
+  const last = transitions.at(-1);
+  return {
+    ...clone(base),
+    state,
+    previousState: last.from,
+    stateEnteredAt: last.at,
+    transitions,
+    gateEvidence: [{ gate: state, digest: last.evidenceDigests.gate }],
+  };
+}
+
 test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, and time', async () => {
   const schemaNames = [
     'activity', 'asset-manifest', 'beat-map', 'data-overlays', 'design-system',
@@ -156,6 +191,7 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   assertInvalid(schemas.activity, falselyAvailableActivity, 'available activity requires coverage and an exact source');
   falselyAvailableActivity.coverage.heartRate = 0.8;
   falselyAvailableActivity.sources.heartRate = 'activity-001:heart-rate';
+  falselyAvailableActivity.reasons.heartRate = null;
   assertValid(schemas.activity, falselyAvailableActivity, 'a recorded zero remains valid when coverage and source exist');
   assertValid(schemas.activity, activity, 'missing activity is a valid unavailable branch');
 
@@ -176,11 +212,15 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   const assetManifest = await template('ASSET_MANIFEST');
   assetManifest.designRevision = 'design-7';
   assetManifest.lookRevision = 'look-11';
+  assetManifest.designSystemDigest = '7'.repeat(64);
+  assetManifest.lookProfileDigest = 'b'.repeat(64);
+  assetManifest.integrity.upstream = { designSystem: assetManifest.designSystemDigest, lookProfile: assetManifest.lookProfileDigest };
   assetManifest.assets = [{
     assetId: 'asset-001', role: 'journey-anchor', provenance: 'generated-interpretive',
     portablePath: 'assets/images/components/anchor.webp', colorToken: 'color.accent',
     optional: false,
   }];
+  stampIntegrity(assetManifest);
   assertValid(schemas['asset-manifest'], assetManifest, 'independent design and Look revisions');
   const arbitraryColor = clone(assetManifest);
   arbitraryColor.assets[0].colorToken = '#ff0000';
@@ -188,20 +228,17 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
 
   const probe = await template('PROBE');
   probe.media = [{
-    mediaId: 'media-001', mediaType: 'video', reviewPath: 'analysis/probe/media-001.json',
+    mediaId: 'media-001', mediaType: 'video', reviewPath: 'review/probe/media-001.mp4',
     sourceDigest: '1'.repeat(64), byteSize: 1024, durationSeconds: 12,
     streams: [{ streamId: 'v:0', type: 'video', codec: 'h264', timeBase: '1/30000', frameRate: '30000/1001', width: 3840, height: 2160 }],
     captureTimestamp: '2026-08-31T12:00:00.000Z',
   }];
   probe.integrity.upstream.mediaIndex = '7'.repeat(64);
+  stampIntegrity(probe);
   assertValid(schemas.probe, probe, 'probe owns normalized media facts');
   const absoluteProbe = clone(probe);
   absoluteProbe.media[0].reviewPath = '/Users/alice/private-ride.mov';
   assertInvalid(schemas.probe, absoluteProbe, 'probe cannot expose an absolute input path');
-  const privateFilenameProbe = clone(probe);
-  privateFilenameProbe.media[0].privateFilename = 'alice-private-ride.mov';
-  assertInvalid(schemas.probe, privateFilenameProbe, 'probe cannot expose a private filename field');
-
   const segments = await template('SEGMENTS');
   segments.sourceMediaIds = ['media-001'];
   segments.integrity.upstream.probe = '8'.repeat(64);
@@ -210,6 +247,7 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
     sourceInSeconds: 1, sourceOutSeconds: 5, sourceDurationSeconds: 12,
     reviewPath: 'analysis/segments/segment-001.webp',
   }];
+  stampIntegrity(segments);
   assertValid(schemas.segments, segments, 'segments reference exact probe media IDs and digest');
   const staleSegmentId = clone(segments);
   staleSegmentId.segments[0].mediaId = 'media-999';
@@ -254,11 +292,13 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   overlays.status = 'available';
   overlays.activityDigest = 'a'.repeat(64);
   overlays.syncMapDigest = 'b'.repeat(64);
+  overlays.integrity.upstream = { activity: overlays.activityDigest, syncMap: overlays.syncMapDigest };
   overlays.overlays = [{
     overlayId: 'overlay-001', metricId: 'metrics.averageHeartRate', displayAuthority: 'chapter-summary',
     syncAuthority: 'whole-activity', wording: 'Average heart rate unavailable', colorToken: 'color.dataPrimary',
     destinationInSeconds: 10, destinationOutSeconds: 14,
   }];
+  stampIntegrity(overlays);
   assertValid(schemas['data-overlays'], overlays, 'data overlays reference normalized metrics and authority digests');
   const calculatedOverlay = clone(overlays);
   calculatedOverlay.overlays[0].value = 160;
@@ -269,10 +309,12 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   timeline.designRevision = 'design-7';
   timeline.lookRevision = 'look-11';
   timeline.sourceProbeDigest = '8'.repeat(64);
+  timeline.integrity.upstream = { probe: timeline.sourceProbeDigest };
   timeline.items = [
     { itemId: 'item-001', sourceMediaId: 'media-001', sourceInSeconds: 1, sourceOutSeconds: 4, sourceDurationSeconds: 12, destinationInSeconds: 0, destinationOutSeconds: 3, playbackRate: 1, colorToken: 'color.primaryText' },
     { itemId: 'item-002', sourceMediaId: 'media-001', sourceInSeconds: 5, sourceOutSeconds: 8, sourceDurationSeconds: 12, destinationInSeconds: 3, destinationOutSeconds: 6, playbackRate: 1, colorToken: 'color.primaryText' },
   ];
+  stampIntegrity(timeline);
   assertValid(schemas.timeline, timeline, 'timeline has monotonic destination time and bounded source time');
   const nonMonotonic = clone(timeline);
   nonMonotonic.items[1].destinationInSeconds = 2.5;
@@ -345,20 +387,10 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
     'BLOCKED', 'CANCELLED',
   ];
   for (const state of states) {
-    const value = clone(projectState);
-    value.state = state;
-    value.stateEnteredAt = '2026-09-01T00:00:00.000Z';
+    const value = projectStateAt(projectState, state);
     assertValid(schemas['project-state'], value, `state ${state}`);
   }
-  const validStateHistory = clone(projectState);
-  validStateHistory.state = 'DELIVERED';
-  validStateHistory.transitions = [
-    ['INTAKE', 'CAPABILITY_CHECK'], ['CAPABILITY_CHECK', 'SCAN'], ['SCAN', 'ANALYZE'],
-    ['ANALYZE', 'ROUGH_CUT'], ['ROUGH_CUT', 'DIRECTOR_REVIEW_READY'],
-    ['DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK'], ['DIRECTOR_LOCK', 'STYLE_ANCHOR'],
-    ['STYLE_ANCHOR', 'ASSET_PRODUCTION'], ['ASSET_PRODUCTION', 'MOTION_COMPOSITION'],
-    ['MOTION_COMPOSITION', 'FINAL_RENDER'], ['FINAL_RENDER', 'FINAL_QA'], ['FINAL_QA', 'DELIVERED'],
-  ].map(([from, to], index) => ({ from, to, at: `2026-09-01T00:${String(index).padStart(2, '0')}:00.000Z`, evidenceDigests: { gate: String(index).padStart(64, '0') } }));
+  const validStateHistory = projectStateAt(projectState, 'DELIVERED');
   assertValid(schemas['project-state'], validStateHistory, 'main lifecycle transitions are ordered');
   const skippedState = clone(validStateHistory);
   skippedState.transitions[0].to = 'SCAN';
@@ -397,4 +429,161 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
+});
+
+test('project lifecycle requires auditable gate history before non-intake states', async () => {
+  const schema = await loadSchema('project-state');
+  const initial = await template('PROJECT_STATE');
+  const historylessDelivery = { ...clone(initial), state: 'DELIVERED' };
+  assertInvalid(schema, historylessDelivery, 'DELIVERED cannot omit all gates');
+
+  const delivered = projectStateAt(initial, 'DELIVERED');
+  assertValid(schema, delivered, 'DELIVERED accepts a contiguous INTAKE-rooted history');
+  const wrongPrevious = clone(delivered);
+  wrongPrevious.previousState = 'INTAKE';
+  assertInvalid(schema, wrongPrevious, 'previousState binds to the final transition');
+  const unboundGate = clone(delivered);
+  unboundGate.gateEvidence[0].digest = 'f'.repeat(64);
+  assertInvalid(schema, unboundGate, 'final gate evidence binds to the final transition');
+});
+
+test('artifact validation rejects digest mismatch and enforces explicit upstream lineage', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hyperframes-integrity-'));
+  try {
+    const project = await template('PROJECT');
+    project.integrity.digest = '0'.repeat(64);
+    const artifactPath = join(scratch, 'PROJECT.json');
+    await writeFile(artifactPath, `${JSON.stringify(project)}\n`);
+    const result = await validateArtifact(artifactPath, 'project');
+    assert.equal(result.valid, false, 'validateArtifact rejects a stale non-null digest');
+    assert.ok(result.errors.some(({ code }) => code === 'E_INTEGRITY_DIGEST_MISMATCH'));
+    await assert.rejects(
+      execFileAsync(process.execPath, [`${ROOT}/scripts/validate_artifacts.mjs`, 'project', artifactPath]),
+      (error) => JSON.parse(error.stdout).errors.some(({ code }) => code === 'E_INTEGRITY_DIGEST_MISMATCH'),
+    );
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+
+  const segmentsSchema = await loadSchema('segments');
+  const segments = await template('SEGMENTS');
+  segments.sourceMediaIds = ['media-001'];
+  segments.integrity.upstream = { probe: '1'.repeat(64) };
+  segments.segments = [{
+    segmentId: 'segment-001', mediaId: 'media-001', probeDigest: '1'.repeat(64),
+    sourceInSeconds: 0, sourceOutSeconds: 1, sourceDurationSeconds: 2,
+    reviewPath: 'review/segments/segment-001.webp',
+  }];
+  stampIntegrity(segments);
+  assertValid(segmentsSchema, segments, 'SEGMENTS binds its explicit probe digest');
+  const extraSegmentUpstream = clone(segments);
+  extraSegmentUpstream.integrity.upstream.activity = '2'.repeat(64);
+  assertInvalid(segmentsSchema, extraSegmentUpstream, 'SEGMENTS rejects undeclared upstream roles');
+
+  const overlaysSchema = await loadSchema('data-overlays');
+  const overlays = await template('DATA_OVERLAYS');
+  overlays.status = 'available';
+  overlays.activityDigest = 'a'.repeat(64);
+  overlays.syncMapDigest = 'b'.repeat(64);
+  overlays.integrity.upstream = { activity: overlays.activityDigest, syncMap: overlays.syncMapDigest };
+  overlays.overlays = [{
+    overlayId: 'overlay-001', metricId: 'metrics.distance', displayAuthority: 'whole-activity',
+    syncAuthority: 'whole-activity', wording: 'Distance', colorToken: 'color.dataPrimary',
+    destinationInSeconds: 0, destinationOutSeconds: 1,
+  }];
+  stampIntegrity(overlays);
+  assertValid(overlaysSchema, overlays, 'DATA_OVERLAYS binds activity and sync-map digests');
+  const staleActivity = clone(overlays);
+  staleActivity.integrity.upstream.activity = 'c'.repeat(64);
+  assertInvalid(overlaysSchema, staleActivity, 'DATA_OVERLAYS rejects stale activity lineage');
+
+  const timelineSchema = await loadSchema('timeline');
+  const timeline = await template('TIMELINE');
+  timeline.sourceProbeDigest = 'd'.repeat(64);
+  timeline.integrity.upstream = { probe: timeline.sourceProbeDigest };
+  timeline.items = [{
+    itemId: 'item-001', sourceMediaId: 'media-001', sourceInSeconds: 0,
+    sourceOutSeconds: 1, sourceDurationSeconds: 2, destinationInSeconds: 0,
+    destinationOutSeconds: 1, playbackRate: 1, colorToken: 'color.primaryText',
+  }];
+  stampIntegrity(timeline);
+  assertValid(timelineSchema, timeline, 'TIMELINE binds its probe digest');
+  const missingTimelineUpstream = clone(timeline);
+  missingTimelineUpstream.integrity.upstream = {};
+  assertInvalid(timelineSchema, missingTimelineUpstream, 'TIMELINE requires exact probe lineage');
+
+  const assetsSchema = await loadSchema('asset-manifest');
+  const assets = await template('ASSET_MANIFEST');
+  assets.designSystemDigest = 'e'.repeat(64);
+  assets.lookProfileDigest = 'f'.repeat(64);
+  assets.integrity.upstream = { designSystem: assets.designSystemDigest, lookProfile: assets.lookProfileDigest };
+  assets.assets = [{
+    assetId: 'asset-001', role: 'journey-anchor', provenance: 'generated-interpretive',
+    portablePath: 'assets/images/components/anchor.webp', colorToken: 'color.accent', optional: false,
+  }];
+  stampIntegrity(assets);
+  assertValid(assetsSchema, assets, 'ASSET_MANIFEST binds design-system and Look digests');
+  const staleLook = clone(assets);
+  staleLook.lookProfileDigest = '0'.repeat(64);
+  assertInvalid(assetsSchema, staleLook, 'ASSET_MANIFEST rejects stale Look lineage');
+});
+
+test('activity validation enforces every metric authority tuple', async () => {
+  const schema = await loadSchema('activity');
+  const activity = await template('ACTIVITY');
+  for (const key of Object.keys(activity.reasons)) activity.reasons[key] = 'activity-data-unavailable';
+  activity.status = 'available';
+  activity.metrics.averageHeartRate = 0;
+  activity.availability.heartRate = 'available';
+  activity.coverage.heartRate = 0.8;
+  activity.reasons.heartRate = null;
+  activity.sources.heartRate = 'activity-001:heart-rate';
+  activity.metrics.distance = 10;
+  assertInvalid(schema, activity, 'one coherent tuple cannot hide another inconsistent metric');
+
+  activity.metrics.distance = null;
+  assertValid(schema, activity, 'all tuples are coherent and recorded zero remains valid');
+  activity.status = 'unavailable';
+  assertInvalid(schema, activity, 'overall unavailable requires every tuple unavailable');
+});
+
+test('edit brief leaves profile maturity to profile resolution', async () => {
+  const schema = await loadSchema('edit-brief');
+  const editBrief = await template('EDIT_BRIEF');
+  delete editBrief.sport.maturity;
+  assertValid(schema, editBrief, 'EDIT_BRIEF accepts a profile without caller-declared maturity');
+  editBrief.sport.maturity = 'release-grade';
+  assertInvalid(schema, editBrief, 'EDIT_BRIEF rejects independent maturity claims');
+});
+
+test('probe review paths are ID-derived and never expose private source basenames', async () => {
+  const schema = await loadSchema('probe');
+  const probe = await template('PROBE');
+  probe.media = [{
+    mediaId: 'media-001', mediaType: 'video', reviewPath: 'review/probe/media-001.mp4',
+    sourceDigest: '1'.repeat(64), byteSize: 1024, durationSeconds: 2,
+    streams: [{ streamId: 'v:0', type: 'video', codec: 'h264', timeBase: '1/30', frameRate: '30/1', width: 1920, height: 1080 }],
+    captureTimestamp: null,
+  }];
+  probe.integrity.upstream = { mediaIndex: '2'.repeat(64) };
+  stampIntegrity(probe);
+  assertValid(schema, probe, 'ID-derived review path is valid');
+  probe.media[0].reviewPath = 'review/probe/Alice-Sunday-Ride.mp4';
+  assertInvalid(schema, probe, 'private source basename is rejected even under a portable namespace');
+});
+
+test('data overlays accept only normalized activity metric IDs', async () => {
+  const schema = await loadSchema('data-overlays');
+  const overlays = await template('DATA_OVERLAYS');
+  overlays.status = 'available';
+  overlays.activityDigest = 'a'.repeat(64);
+  overlays.syncMapDigest = 'b'.repeat(64);
+  overlays.integrity.upstream = { activity: overlays.activityDigest, syncMap: overlays.syncMapDigest };
+  overlays.overlays = [{
+    overlayId: 'overlay-001', metricId: 'metrics.vo2Max', displayAuthority: 'whole-activity',
+    syncAuthority: 'whole-activity', wording: 'VO2 max', colorToken: 'color.dataPrimary',
+    destinationInSeconds: 0, destinationOutSeconds: 1,
+  }];
+  stampIntegrity(overlays);
+  assertInvalid(schema, overlays, 'nonexistent normalized metric IDs are rejected');
 });

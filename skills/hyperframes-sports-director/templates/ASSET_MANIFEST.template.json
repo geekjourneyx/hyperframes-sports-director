@@ -6,6 +6,8 @@
   "status": "draft",
   "designRevision": "design-1",
   "lookRevision": "look-1",
+  "designSystemDigest": null,
+  "lookProfileDigest": null,
   "assets": [],
   "integrity": { "digest": null, "upstream": {} }
 }

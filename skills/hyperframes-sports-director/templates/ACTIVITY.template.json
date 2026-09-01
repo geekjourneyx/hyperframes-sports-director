@@ -6,7 +6,7 @@
   "metrics": { "averageHeartRate": null, "distance": null, "movingTime": null, "averageSpeed": null, "elevationGain": null },
   "availability": { "heartRate": "unavailable", "distance": "unavailable", "movingTime": "unavailable", "speed": "unavailable", "elevationGain": "unavailable" },
   "coverage": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null },
-  "reasons": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null },
+  "reasons": { "heartRate": "activity-data-unavailable", "distance": "activity-data-unavailable", "movingTime": "activity-data-unavailable", "speed": "activity-data-unavailable", "elevationGain": "activity-data-unavailable" },
   "sources": { "heartRate": null, "distance": null, "movingTime": null, "speed": null, "elevationGain": null },
   "integrity": { "digest": null, "upstream": {} }
 }

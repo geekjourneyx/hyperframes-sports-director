@@ -7,7 +7,7 @@
     "$schema": { "const": "https://hyperframes.local/schemas/edit-brief.schema.json" },
     "schemaVersion": { "const": "1.0.0" },
     "revision": { "type": "integer", "minimum": 1 },
-    "sport": { "type": "object", "required": ["profile", "maturity"], "additionalProperties": false, "properties": { "profile": { "enum": ["cycling", "hiking", "pool-swimming", "running", "technical-mountaineering", "trail-running", "open-water-swimming"] }, "maturity": { "enum": ["release-grade", "experimental"] } } },
+    "sport": { "type": "object", "required": ["profile"], "additionalProperties": false, "properties": { "profile": { "enum": ["cycling", "hiking", "pool-swimming", "running", "technical-mountaineering", "trail-running", "open-water-swimming"] } } },
     "story": { "type": "object", "required": ["emphasis", "tone", "pacing"], "additionalProperties": false, "properties": { "emphasis": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }, "tone": { "type": ["string", "null"] }, "pacing": { "enum": ["observational", "balanced", "energetic"] } } },
     "duration": { "type": "object", "required": ["targetSeconds", "minSeconds", "maxSeconds"], "additionalProperties": false, "properties": { "targetSeconds": { "type": "number", "exclusiveMinimum": 0 }, "minSeconds": { "type": "number", "exclusiveMinimum": 0 }, "maxSeconds": { "type": "number", "exclusiveMinimum": 0 } } },
     "music": { "type": "object", "required": ["mode", "localTracks", "mixPriority"], "additionalProperties": false, "properties": { "mode": { "enum": ["none", "provided", "select-local"] }, "localTracks": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/path" } }, "mixPriority": { "enum": ["ambient", "balanced", "music"] } } },

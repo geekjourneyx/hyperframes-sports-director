@@ -29,6 +29,11 @@ const MAIN_STATES = [
   'DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION',
   'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED',
 ];
+const REVIEW_EXTENSIONS = {
+  video: new Set(['mp4', 'webm']),
+  image: new Set(['jpg', 'jpeg', 'png', 'webp']),
+  audio: new Set(['m4a', 'wav']),
+};
 
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);
@@ -80,6 +85,15 @@ function checkLifecycle(value, schema, errors) {
 }
 
 function checkProjectState(value, schema, errors) {
+  if (value.transitions.length === 0) {
+    if (value.state !== 'INTAKE' || value.previousState !== null || value.gateEvidence.length > 0) {
+      addSemantic(errors, schema, 'E_STATE_HISTORY_REQUIRED', '/transitions', 'only INTAKE may have empty transition history');
+    }
+    return;
+  }
+  if (value.transitions[0].from !== 'INTAKE') {
+    addSemantic(errors, schema, 'E_STATE_HISTORY_ROOT', '/transitions/0/from', 'transition history must start at INTAKE');
+  }
   for (let index = 0; index < value.transitions.length; index += 1) {
     const transition = value.transitions[index];
     const fromIndex = MAIN_STATES.indexOf(transition.from);
@@ -94,13 +108,79 @@ function checkProjectState(value, schema, errors) {
   if (value.transitions.length > 0 && value.transitions.at(-1).to !== value.state) {
     addSemantic(errors, schema, 'E_STATE_CURRENT', '/state', 'state must equal the final transition destination');
   }
+  const finalTransition = value.transitions.at(-1);
+  if (value.previousState !== finalTransition.from) {
+    addSemantic(errors, schema, 'E_STATE_PREVIOUS', '/previousState', 'previousState must equal the final transition source');
+  }
+  if (value.stateEnteredAt !== finalTransition.at) {
+    addSemantic(errors, schema, 'E_STATE_ENTERED_AT', '/stateEnteredAt', 'stateEnteredAt must equal the final transition timestamp');
+  }
+  const finalGate = value.gateEvidence.at(-1);
+  if (!finalGate || finalGate.gate !== value.state || !Object.values(finalTransition.evidenceDigests).includes(finalGate.digest)) {
+    addSemantic(errors, schema, 'E_STATE_GATE_EVIDENCE', '/gateEvidence', 'final gate evidence must bind the current state to the final transition');
+  }
+}
+
+function checkExactLineage(value, schema, errors, references) {
+  const requiredRoles = Object.keys(references).sort();
+  const actualRoles = Object.keys(value.integrity.upstream).sort();
+  if (requiredRoles.length !== actualRoles.length || requiredRoles.some((role, index) => role !== actualRoles[index])) {
+    addSemantic(errors, schema, 'E_UPSTREAM_ROLES', '/integrity/upstream', `upstream roles must be exactly: ${requiredRoles.join(', ')}`);
+  }
+  for (const [role, digest] of Object.entries(references)) {
+    if (value.integrity.upstream[role] !== digest) {
+      addSemantic(errors, schema, 'E_UPSTREAM_DIGEST_REFERENCE', `/integrity/upstream/${role}`, `${role} digest must match its explicit reference`);
+    }
+  }
+  if (!DIGEST.test(value.integrity.digest ?? '')) {
+    addSemantic(errors, schema, 'E_INTEGRITY_REQUIRED', '/integrity/digest', 'an artifact with upstream dependencies requires its content digest');
+  }
+}
+
+function checkActivity(value, schema, errors) {
+  let availableCount = 0;
+  for (const [metricId, authorityKey] of Object.entries(METRIC_AUTHORITY_KEYS)) {
+    const metricValue = value.metrics[metricId];
+    const availability = value.availability[authorityKey];
+    const coverage = value.coverage[authorityKey];
+    const reason = value.reasons[authorityKey];
+    const source = value.sources[authorityKey];
+    if (metricValue !== null) {
+      availableCount += 1;
+      if (availability !== 'available' || coverage === null || typeof source !== 'string' || source.trim().length === 0 || reason !== null) {
+        addSemantic(errors, schema, 'E_ACTIVITY_TUPLE', `/metrics/${metricId}`, 'available metric requires available status, coverage, source, and null reason');
+      }
+    } else if (availability !== 'unavailable' || coverage !== null || source !== null || typeof reason !== 'string' || reason.trim().length === 0) {
+      addSemantic(errors, schema, 'E_ACTIVITY_TUPLE', `/metrics/${metricId}`, 'unavailable metric requires null value, coverage, source, and a non-empty reason');
+    }
+  }
+  if (value.status === 'available' && availableCount === 0) {
+    addSemantic(errors, schema, 'E_ACTIVITY_STATUS', '/status', 'available activity requires at least one available metric tuple');
+  }
+  if (value.status === 'unavailable' && availableCount !== 0) {
+    addSemantic(errors, schema, 'E_ACTIVITY_STATUS', '/status', 'unavailable activity requires every metric tuple to be unavailable');
+  }
+}
+
+function checkProbeReviewPaths(value, schema, errors) {
+  for (let index = 0; index < value.media.length; index += 1) {
+    const media = value.media[index];
+    const prefix = `review/probe/${media.mediaId}.`;
+    const extension = media.reviewPath.startsWith(prefix) ? media.reviewPath.slice(prefix.length) : '';
+    if (!REVIEW_EXTENSIONS[media.mediaType].has(extension)) {
+      addSemantic(errors, schema, 'E_REVIEW_PATH', `/media/${index}/reviewPath`, 'review path must use the mediaId basename in review/probe with an allowed media extension');
+    }
+  }
 }
 
 function semanticErrors(schema, value) {
   const errors = [];
   const name = schemaName(schema);
   if (name === 'media-index') checkUniqueIds(value.entries, 'mediaId', '/entries', schema, errors);
-  if (name === 'probe') checkUniqueIds(value.media, 'mediaId', '/media', schema, errors);
+  if (name === 'probe') {
+    checkUniqueIds(value.media, 'mediaId', '/media', schema, errors);
+    checkProbeReviewPaths(value, schema, errors);
+  }
   if (name === 'shot') {
     checkUniqueIds(value.shots, 'shotId', '/shots', schema, errors);
     checkBounds(value.shots, '/shots', schema, errors);
@@ -113,6 +193,9 @@ function semanticErrors(schema, value) {
       const segment = value.segments[index];
       if (!mediaIds.has(segment.mediaId)) addSemantic(errors, schema, 'E_PROBE_MEDIA_REFERENCE', `/segments/${index}/mediaId`, 'segment mediaId must resolve in sourceMediaIds');
       if (segment.probeDigest !== value.integrity.upstream.probe) addSemantic(errors, schema, 'E_PROBE_DIGEST_REFERENCE', `/segments/${index}/probeDigest`, 'segment probeDigest must match integrity.upstream.probe');
+    }
+    if (value.sourceMediaIds.length > 0 || value.segments.length > 0) {
+      checkExactLineage(value, schema, errors, { probe: value.integrity.upstream.probe });
     }
   }
   if (name === 'timeline') {
@@ -128,17 +211,16 @@ function semanticErrors(schema, value) {
         addSemantic(errors, schema, 'E_DESTINATION_MONOTONIC', `/items/${index}/destinationInSeconds`, 'destination intervals must be monotonic and non-overlapping');
       }
     }
+    if (value.sourceProbeDigest !== null || value.items.length > 0) {
+      checkExactLineage(value, schema, errors, { probe: value.sourceProbeDigest });
+    }
   }
-  if (name === 'activity' && value.status === 'available') {
-    const availableMetric = Object.entries(value.metrics).some(([metricId, metricValue]) => {
-      const authorityKey = METRIC_AUTHORITY_KEYS[metricId];
-      return metricValue !== null
-        && value.availability[authorityKey] === 'available'
-        && value.coverage[authorityKey] !== null
-        && typeof value.sources[authorityKey] === 'string'
-        && value.sources[authorityKey].trim().length > 0;
-    });
-    if (!availableMetric) addSemantic(errors, schema, 'E_ACTIVITY_SOURCE_REQUIRED', '/status', 'available activity requires at least one available sourced metric');
+  if (name === 'activity') checkActivity(value, schema, errors);
+  if (name === 'data-overlays' && value.status === 'available') {
+    checkExactLineage(value, schema, errors, { activity: value.activityDigest, syncMap: value.syncMapDigest });
+  }
+  if (name === 'asset-manifest' && (value.assets.length > 0 || value.status !== 'draft')) {
+    checkExactLineage(value, schema, errors, { designSystem: value.designSystemDigest, lookProfile: value.lookProfileDigest });
   }
   if (name === 'design-system' || name === 'look-profile') checkLifecycle(value, schema, errors);
   if (name === 'project-state') checkProjectState(value, schema, errors);
@@ -179,7 +261,15 @@ export async function validateArtifact(path, requestedSchemaName) {
       errors: [diagnostic('E_ARTIFACT_READ', '/', error.message, schemaName(schema))],
     };
   }
-  return { ...validateDocument(schema, value), value };
+  const validation = validateDocument(schema, value);
+  if (validation.valid && value.integrity?.digest !== null) {
+    const integrity = verifyArtifactIntegrity(value);
+    if (!integrity.valid) {
+      validation.valid = false;
+      validation.errors.push(diagnostic(integrity.code, '/integrity/digest', 'artifact digest does not match canonical content', schemaName(schema)));
+    }
+  }
+  return { ...validation, value };
 }
 
 function canonicalValue(value, omitDigest = false) {

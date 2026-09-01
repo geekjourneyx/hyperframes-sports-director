@@ -2,7 +2,7 @@
   "$schema": "https://hyperframes.local/schemas/edit-brief.schema.json",
   "schemaVersion": "1.0.0",
   "revision": 1,
-  "sport": { "profile": "cycling", "maturity": "release-grade" },
+  "sport": { "profile": "cycling" },
   "story": { "emphasis": [], "tone": null, "pacing": "balanced" },
   "duration": { "targetSeconds": 180, "minSeconds": 150, "maxSeconds": 210 },
   "music": { "mode": "provided", "localTracks": [], "mixPriority": "balanced" },
