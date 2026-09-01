@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/director-approval.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "selectedCandidateId", "displayedArtifactDigests", "approvedAt", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/director-approval.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["unavailable", "approved"] },
+    "selectedCandidateId": { "type": ["string", "null"], "pattern": "^candidate-[a-zA-Z0-9-]+$" },
+    "displayedArtifactDigests": { "type": "object", "additionalProperties": false, "properties": { "editBrief": { "$ref": "#/$defs/digest" }, "roughCut": { "$ref": "#/$defs/digest" }, "musicPlan": { "$ref": "#/$defs/digest" }, "assetPlan": { "$ref": "#/$defs/digest" }, "evidence": { "$ref": "#/$defs/digest" }, "proposals": { "$ref": "#/$defs/digest" } } },
+    "approvedAt": { "type": ["string", "null"], "format": "date-time" },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "const": "unavailable" } } }, "then": { "properties": { "selectedCandidateId": { "type": "null" }, "displayedArtifactDigests": { "type": "object", "maxProperties": 0 }, "approvedAt": { "type": "null" } } } },
+    { "if": { "properties": { "status": { "const": "approved" } } }, "then": { "properties": { "selectedCandidateId": { "type": "string" }, "displayedArtifactDigests": { "$ref": "#/$defs/completeDisplayedDigests" }, "approvedAt": { "type": "string", "format": "date-time" } } } }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "completeDisplayedDigests": { "type": "object", "required": ["editBrief", "roughCut", "musicPlan", "assetPlan", "evidence", "proposals"], "properties": { "editBrief": true, "roughCut": true, "musicPlan": true, "assetPlan": true, "evidence": true, "proposals": true } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

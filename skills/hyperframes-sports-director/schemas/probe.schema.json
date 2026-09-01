@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/probe.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "media", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/probe.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "media": { "type": "array", "items": { "$ref": "#/$defs/media" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "stream": { "type": "object", "required": ["streamId", "type", "codec", "timeBase"], "additionalProperties": false, "properties": { "streamId": { "type": "string", "minLength": 1 }, "type": { "enum": ["video", "audio", "subtitle", "data"] }, "codec": { "type": "string", "minLength": 1 }, "timeBase": { "type": "string", "pattern": "^[1-9][0-9]*/[1-9][0-9]*$" }, "frameRate": { "type": "string", "pattern": "^[1-9][0-9]*/[1-9][0-9]*$" }, "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 }, "channels": { "type": "integer", "minimum": 1 }, "sampleRate": { "type": "integer", "minimum": 1 } } },
+    "media": { "type": "object", "required": ["mediaId", "mediaType", "reviewPath", "sourceDigest", "byteSize", "durationSeconds", "streams", "captureTimestamp"], "additionalProperties": false, "properties": { "mediaId": { "type": "string", "pattern": "^media-[a-zA-Z0-9-]+$" }, "mediaType": { "enum": ["video", "image", "audio"] }, "reviewPath": { "$ref": "#/$defs/path" }, "sourceDigest": { "$ref": "#/$defs/digest" }, "byteSize": { "type": "integer", "minimum": 0 }, "durationSeconds": { "type": ["number", "null"], "minimum": 0 }, "streams": { "type": "array", "items": { "$ref": "#/$defs/stream" } }, "captureTimestamp": { "type": ["string", "null"], "format": "date-time" } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

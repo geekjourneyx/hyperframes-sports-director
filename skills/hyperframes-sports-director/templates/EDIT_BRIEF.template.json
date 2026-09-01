@@ -1,0 +1,16 @@
+{
+  "$schema": "https://hyperframes.local/schemas/edit-brief.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "sport": { "profile": "cycling", "maturity": "release-grade" },
+  "story": { "emphasis": [], "tone": null, "pacing": "balanced" },
+  "duration": { "targetSeconds": 180, "minSeconds": 150, "maxSeconds": 210 },
+  "music": { "mode": "provided", "localTracks": [], "mixPriority": "balanced" },
+  "copy": { "modes": ["titles"], "language": "en", "tone": null, "title": null, "subtitle": null, "prohibitedClaims": [] },
+  "delivery": { "container": "mp4", "videoCodec": "h264", "audioCodec": "aac", "width": 3840, "height": 2160, "aspectRatio": "16:9", "frameRate": { "mode": "source-compatible", "fps": null }, "maximumFileSizeBytes": null },
+  "inclusions": [],
+  "exclusions": [],
+  "privacy": { "routeTrimRequired": true, "allowIdentities": false },
+  "remoteCapabilitiesForbidden": true,
+  "integrity": { "digest": null, "upstream": {} }
+}

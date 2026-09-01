@@ -1,0 +1,12 @@
+{
+  "$schema": "https://hyperframes.local/schemas/sync-map.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "method": "none",
+  "anchors": [],
+  "confidence": null,
+  "residualErrorSeconds": null,
+  "validInterval": null,
+  "integrity": { "digest": null, "upstream": {} }
+}

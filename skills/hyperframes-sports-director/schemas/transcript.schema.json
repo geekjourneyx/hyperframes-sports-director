@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://hyperframes.local/schemas/transcript.schema.json", "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "language", "segments", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/transcript.schema.json" }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 }, "status": { "enum": ["unavailable", "available"] }, "language": { "type": ["string", "null"] },
+    "segments": { "type": "array", "items": { "type": "object", "required": ["transcriptId", "mediaId", "sourceInSeconds", "sourceOutSeconds", "text", "confidence"], "additionalProperties": false, "properties": { "transcriptId": { "type": "string", "pattern": "^transcript-[a-zA-Z0-9-]+$" }, "mediaId": { "type": "string", "pattern": "^media-[a-zA-Z0-9-]+$" }, "sourceInSeconds": { "type": "number", "minimum": 0 }, "sourceOutSeconds": { "type": "number", "exclusiveMinimum": 0 }, "text": { "type": "string", "minLength": 1 }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 } } } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  }, "additionalProperties": false,
+  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+}

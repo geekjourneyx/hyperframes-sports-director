@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/edit-brief.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "sport", "story", "duration", "music", "copy", "delivery", "inclusions", "exclusions", "privacy", "remoteCapabilitiesForbidden", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/edit-brief.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "sport": { "type": "object", "required": ["profile", "maturity"], "additionalProperties": false, "properties": { "profile": { "enum": ["cycling", "hiking", "pool-swimming", "running", "technical-mountaineering", "trail-running", "open-water-swimming"] }, "maturity": { "enum": ["release-grade", "experimental"] } } },
+    "story": { "type": "object", "required": ["emphasis", "tone", "pacing"], "additionalProperties": false, "properties": { "emphasis": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }, "tone": { "type": ["string", "null"] }, "pacing": { "enum": ["observational", "balanced", "energetic"] } } },
+    "duration": { "type": "object", "required": ["targetSeconds", "minSeconds", "maxSeconds"], "additionalProperties": false, "properties": { "targetSeconds": { "type": "number", "exclusiveMinimum": 0 }, "minSeconds": { "type": "number", "exclusiveMinimum": 0 }, "maxSeconds": { "type": "number", "exclusiveMinimum": 0 } } },
+    "music": { "type": "object", "required": ["mode", "localTracks", "mixPriority"], "additionalProperties": false, "properties": { "mode": { "enum": ["none", "provided", "select-local"] }, "localTracks": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/path" } }, "mixPriority": { "enum": ["ambient", "balanced", "music"] } } },
+    "copy": { "type": "object", "required": ["modes", "language", "tone", "title", "subtitle", "prohibitedClaims"], "additionalProperties": false, "properties": { "modes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["none", "titles", "captions", "voiceover-script"] } }, "language": { "type": "string", "minLength": 2 }, "tone": { "type": ["string", "null"] }, "title": { "type": ["string", "null"] }, "subtitle": { "type": ["string", "null"] }, "prohibitedClaims": { "type": "array", "items": { "type": "string", "minLength": 1 } } } },
+    "delivery": { "type": "object", "required": ["container", "videoCodec", "audioCodec", "width", "height", "aspectRatio", "frameRate", "maximumFileSizeBytes"], "additionalProperties": false, "properties": { "container": { "enum": ["mp4", "mov", "mkv"] }, "videoCodec": { "enum": ["h264", "hevc", "av1"] }, "audioCodec": { "enum": ["aac", "pcm_s24le", "opus"] }, "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 }, "aspectRatio": { "const": "16:9" }, "frameRate": { "type": "object", "required": ["mode", "fps"], "additionalProperties": false, "properties": { "mode": { "enum": ["source-compatible", "fixed"] }, "fps": { "type": ["number", "null"], "exclusiveMinimum": 0 } } }, "maximumFileSizeBytes": { "type": ["integer", "null"], "minimum": 1 } } },
+    "inclusions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "exclusions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "privacy": { "type": "object", "required": ["routeTrimRequired", "allowIdentities"], "additionalProperties": false, "properties": { "routeTrimRequired": { "type": "boolean" }, "allowIdentities": { "type": "boolean" } } },
+    "remoteCapabilitiesForbidden": { "type": "boolean" },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

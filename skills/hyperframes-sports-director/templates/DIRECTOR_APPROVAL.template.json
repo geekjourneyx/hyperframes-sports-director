@@ -1,0 +1,10 @@
+{
+  "$schema": "https://hyperframes.local/schemas/director-approval.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "selectedCandidateId": null,
+  "displayedArtifactDigests": {},
+  "approvedAt": null,
+  "integrity": { "digest": null, "upstream": {} }
+}

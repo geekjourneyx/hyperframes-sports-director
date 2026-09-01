@@ -1,0 +1,8 @@
+{
+  "$schema": "https://hyperframes.local/schemas/direction-proposals.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "candidates": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

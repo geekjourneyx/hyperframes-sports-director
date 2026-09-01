@@ -1,0 +1,15 @@
+{
+  "$schema": "https://hyperframes.local/schemas/look-profile.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "lookRevision": "look-1",
+  "status": "draft",
+  "approvalDigest": null,
+  "lifecycle": [{ "status": "draft", "at": "1970-01-01T00:00:00.000Z" }],
+  "input": { "interpretation": "source-metadata" },
+  "working": { "colorSpace": "linear-rec709" },
+  "output": { "colorSpace": "rec709-sdr" },
+  "adjustments": { "whiteBalance": 0, "exposure": 0, "contrast": 0, "saturation": 1, "highlightProtection": 0 },
+  "shotMatchingPolicy": "conservative",
+  "integrity": { "digest": null, "upstream": {} }
+}

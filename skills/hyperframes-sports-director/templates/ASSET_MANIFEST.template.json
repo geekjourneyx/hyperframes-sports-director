@@ -1,0 +1,11 @@
+{
+  "$schema": "https://hyperframes.local/schemas/asset-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "assetRevision": "assets-1",
+  "status": "draft",
+  "designRevision": "design-1",
+  "lookRevision": "look-1",
+  "assets": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://hyperframes.local/schemas/timeline.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "timelineRevision": "timeline-1",
+  "status": "draft",
+  "phase": "rough",
+  "designRevision": "design-1",
+  "lookRevision": "look-1",
+  "assetRevision": "assets-1",
+  "motionRevision": "motion-1",
+  "sourceProbeDigest": null,
+  "items": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

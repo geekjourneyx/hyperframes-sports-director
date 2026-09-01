@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/timeline.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "timelineRevision", "status", "phase", "designRevision", "lookRevision", "assetRevision", "motionRevision", "sourceProbeDigest", "items", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/timeline.schema.json" },
+    "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 },
+    "timelineRevision": { "type": "string", "pattern": "^timeline-[a-zA-Z0-9-]+$" },
+    "status": { "enum": ["draft", "available", "frozen", "superseded"] }, "phase": { "enum": ["rough", "final"] },
+    "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" }, "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
+    "assetRevision": { "type": "string", "pattern": "^assets-[a-zA-Z0-9-]+$" }, "motionRevision": { "type": "string", "pattern": "^motion-[a-zA-Z0-9-]+$" },
+    "sourceProbeDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "item": { "type": "object", "required": ["itemId", "sourceMediaId", "sourceInSeconds", "sourceOutSeconds", "sourceDurationSeconds", "destinationInSeconds", "destinationOutSeconds", "playbackRate", "colorToken"], "additionalProperties": false, "properties": { "itemId": { "type": "string", "pattern": "^item-[a-zA-Z0-9-]+$" }, "sourceMediaId": { "type": "string", "pattern": "^media-[a-zA-Z0-9-]+$" }, "sourceInSeconds": { "type": "number", "minimum": 0 }, "sourceOutSeconds": { "type": "number", "exclusiveMinimum": 0 }, "sourceDurationSeconds": { "type": "number", "minimum": 0 }, "destinationInSeconds": { "type": "number", "minimum": 0 }, "destinationOutSeconds": { "type": "number", "exclusiveMinimum": 0 }, "playbackRate": { "type": "number", "exclusiveMinimum": 0 }, "colorToken": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

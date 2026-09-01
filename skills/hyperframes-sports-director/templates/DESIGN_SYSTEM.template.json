@@ -1,0 +1,14 @@
+{
+  "$schema": "https://hyperframes.local/schemas/design-system.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "designRevision": "design-1",
+  "status": "draft",
+  "approvalDigest": null,
+  "lifecycle": [{ "status": "draft", "at": "1970-01-01T00:00:00.000Z" }],
+  "tokens": {
+    "colors": { "color.background": "#050505", "color.primaryText": "#F5F2EA", "color.accent": "#C9A86A", "color.dataPrimary": "#F5F2EA" },
+    "typography": {}, "spacing": {}, "safeZones": {}, "strokes": {}, "radii": {}, "depth": {}, "motion": {}
+  },
+  "integrity": { "digest": null, "upstream": {} }
+}

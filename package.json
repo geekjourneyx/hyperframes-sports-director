@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "test": "node --test skills/hyperframes-sports-director/scripts/tests/*.test.mjs",
     "test:contracts": "node --test skills/hyperframes-sports-director/scripts/tests/contracts.test.mjs skills/hyperframes-sports-director/scripts/tests/*_contract.test.mjs",
@@ -13,5 +15,9 @@
     "eval": "node skills/hyperframes-sports-director/scripts/score_eval.mjs --all-golden",
     "check": "node skills/hyperframes-sports-director/scripts/check_structure.mjs && node skills/hyperframes-sports-director/scripts/check_release.mjs --check-only",
     "release:dry": "node skills/hyperframes-sports-director/scripts/check_release.mjs --version 1.0.0 --dry-run"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
   }
 }

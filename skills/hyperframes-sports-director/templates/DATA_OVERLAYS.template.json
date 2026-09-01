@@ -1,0 +1,10 @@
+{
+  "$schema": "https://hyperframes.local/schemas/data-overlays.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "activityDigest": null,
+  "syncMapDigest": null,
+  "overlays": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

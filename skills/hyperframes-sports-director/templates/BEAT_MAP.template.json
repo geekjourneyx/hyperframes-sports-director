@@ -1,0 +1,9 @@
+{
+  "$schema": "https://hyperframes.local/schemas/beat-map.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "musicMode": "provided",
+  "beats": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

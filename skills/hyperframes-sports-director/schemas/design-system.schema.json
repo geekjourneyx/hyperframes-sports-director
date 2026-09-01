@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/design-system.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "designRevision", "status", "approvalDigest", "lifecycle", "tokens", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/design-system.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" },
+    "status": { "$ref": "#/$defs/status" },
+    "approvalDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "lifecycle": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "$ref": "#/$defs/lifecycleEntry" } },
+    "tokens": { "type": "object", "required": ["colors", "typography", "spacing", "safeZones", "strokes", "radii", "depth", "motion"], "additionalProperties": false, "properties": {
+      "colors": { "type": "object", "minProperties": 1, "propertyNames": { "pattern": "^color\\.[a-z][A-Za-z0-9]*$" }, "additionalProperties": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" } },
+      "typography": { "type": "object", "additionalProperties": { "type": "object" } },
+      "spacing": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+      "safeZones": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 } },
+      "strokes": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+      "radii": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+      "depth": { "type": "object", "additionalProperties": { "type": "number" } },
+      "motion": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
+    } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "status": { "enum": ["draft", "proposed", "approved", "frozen", "superseded"] },
+    "lifecycleEntry": { "type": "object", "required": ["status", "at"], "additionalProperties": false, "properties": { "status": { "$ref": "#/$defs/status" }, "at": { "type": "string", "format": "date-time" } } },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

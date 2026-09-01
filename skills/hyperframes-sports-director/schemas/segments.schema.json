@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/segments.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "sourceMediaIds", "segments", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/segments.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "sourceMediaIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^media-[a-zA-Z0-9-]+$" } },
+    "segments": { "type": "array", "items": { "$ref": "#/$defs/segment" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "segment": { "type": "object", "required": ["segmentId", "mediaId", "probeDigest", "sourceInSeconds", "sourceOutSeconds", "sourceDurationSeconds", "reviewPath"], "additionalProperties": false, "properties": { "segmentId": { "type": "string", "pattern": "^segment-[a-zA-Z0-9-]+$" }, "mediaId": { "type": "string", "pattern": "^media-[a-zA-Z0-9-]+$" }, "probeDigest": { "$ref": "#/$defs/digest" }, "sourceInSeconds": { "type": "number", "minimum": 0 }, "sourceOutSeconds": { "type": "number", "exclusiveMinimum": 0 }, "sourceDurationSeconds": { "type": "number", "minimum": 0 }, "reviewPath": { "$ref": "#/$defs/path" } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://hyperframes.local/schemas/review-metrics.schema.json", "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "encodedMp4Digest", "metrics", "agentInspection", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/review-metrics.schema.json" }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 }, "status": { "enum": ["unavailable", "measured", "accepted", "rejected"] },
+    "encodedMp4Digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "metrics": { "type": "array", "items": { "type": "object", "required": ["metricId", "status", "value"], "additionalProperties": false, "properties": { "metricId": { "type": "string", "minLength": 1 }, "status": { "enum": ["unavailable", "pass", "fail"] }, "value": {} } } },
+    "agentInspection": { "type": "object", "required": ["status", "evidencePaths"], "additionalProperties": false, "properties": { "status": { "enum": ["unavailable", "accepted", "rejected"] }, "evidencePaths": { "type": "array", "items": { "$ref": "#/$defs/path" } } } }, "integrity": { "$ref": "#/$defs/integrity" }
+  }, "additionalProperties": false,
+  "$defs": { "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" }, "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+}

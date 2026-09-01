@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/project.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "projectId", "revision", "createdAt", "updatedAt", "paths", "remoteCapabilitiesForbidden", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/project.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "projectId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "paths": {
+      "type": "object", "required": ["workspace", "inputReference"], "additionalProperties": false,
+      "properties": { "workspace": { "$ref": "#/$defs/path" }, "inputReference": { "$ref": "#/$defs/path" } }
+    },
+    "remoteCapabilitiesForbidden": { "type": "boolean" },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

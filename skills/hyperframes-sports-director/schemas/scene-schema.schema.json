@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://hyperframes.local/schemas/scene-schema.schema.json", "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "designRevision", "lookRevision", "scenes", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/scene-schema.schema.json" }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 }, "status": { "enum": ["draft", "available", "frozen", "superseded"] },
+    "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" }, "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sceneId", "role", "colorTokens", "shotIds"],
+        "additionalProperties": false,
+        "properties": {
+          "sceneId": { "type": "string", "pattern": "^scene-[a-zA-Z0-9-]+$" },
+          "role": { "type": "string", "minLength": 1 },
+          "colorTokens": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" } },
+          "shotIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^shot-[a-zA-Z0-9-]+$" } }
+        }
+      }
+    },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  }, "additionalProperties": false,
+  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+}

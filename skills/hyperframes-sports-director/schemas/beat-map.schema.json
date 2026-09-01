@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://hyperframes.local/schemas/beat-map.schema.json", "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "musicMode", "beats", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/beat-map.schema.json" }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["unavailable", "available"] }, "musicMode": { "enum": ["none", "provided", "select-local"] },
+    "beats": { "type": "array", "items": { "type": "object", "required": ["beatId", "timeSeconds", "strength"], "additionalProperties": false, "properties": { "beatId": { "type": "string", "pattern": "^beat-[a-zA-Z0-9-]+$" }, "timeSeconds": { "type": "number", "minimum": 0 }, "strength": { "type": "number", "minimum": 0, "maximum": 1 } } } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  }, "additionalProperties": false,
+  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://hyperframes.local/schemas/shot.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "shots": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

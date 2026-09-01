@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/data-overlays.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "activityDigest", "syncMapDigest", "overlays", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/data-overlays.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["unavailable", "available"] },
+    "activityDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "syncMapDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "overlays": { "type": "array", "items": { "$ref": "#/$defs/overlay" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "const": "unavailable" } } }, "then": { "properties": { "overlays": { "type": "array", "maxItems": 0 }, "activityDigest": { "type": "null" }, "syncMapDigest": { "type": "null" } } } },
+    { "if": { "properties": { "status": { "const": "available" } } }, "then": { "properties": { "overlays": { "type": "array", "minItems": 1 }, "activityDigest": { "$ref": "#/$defs/digest" }, "syncMapDigest": { "$ref": "#/$defs/digest" } } } }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "token": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" },
+    "overlay": { "type": "object", "required": ["overlayId", "metricId", "displayAuthority", "syncAuthority", "wording", "colorToken", "destinationInSeconds", "destinationOutSeconds"], "additionalProperties": false, "properties": { "overlayId": { "type": "string", "pattern": "^overlay-[a-zA-Z0-9-]+$" }, "metricId": { "type": "string", "pattern": "^metrics\\.[a-zA-Z][a-zA-Z0-9]*$" }, "displayAuthority": { "enum": ["local-observation", "visible-with-caveat", "chapter-summary", "whole-activity"] }, "syncAuthority": { "enum": ["none", "whole-activity", "chapter", "time-synchronized"] }, "wording": { "type": "string", "minLength": 1 }, "colorToken": { "$ref": "#/$defs/token" }, "destinationInSeconds": { "type": "number", "minimum": 0 }, "destinationOutSeconds": { "type": "number", "exclusiveMinimum": 0 } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

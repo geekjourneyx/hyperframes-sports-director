@@ -1,0 +1,7 @@
+{
+  "$schema": "https://hyperframes.local/schemas/media-index.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "entries": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

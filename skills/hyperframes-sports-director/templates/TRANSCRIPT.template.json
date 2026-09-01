@@ -1,0 +1,9 @@
+{
+  "$schema": "https://hyperframes.local/schemas/transcript.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "status": "unavailable",
+  "language": null,
+  "segments": [],
+  "integrity": { "digest": null, "upstream": {} }
+}

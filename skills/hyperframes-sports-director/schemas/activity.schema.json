@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/activity.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "metrics", "availability", "coverage", "reasons", "sources", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/activity.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["unavailable", "available"] },
+    "metrics": { "$ref": "#/$defs/metrics" },
+    "availability": { "$ref": "#/$defs/availability" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "reasons": { "$ref": "#/$defs/reasons" },
+    "sources": { "$ref": "#/$defs/sources" },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "metrics": { "type": "object", "required": ["averageHeartRate", "distance", "movingTime", "averageSpeed", "elevationGain"], "additionalProperties": false, "properties": { "averageHeartRate": { "type": ["number", "null"], "minimum": 0 }, "distance": { "type": ["number", "null"], "minimum": 0 }, "movingTime": { "type": ["number", "null"], "minimum": 0 }, "averageSpeed": { "type": ["number", "null"], "minimum": 0 }, "elevationGain": { "type": ["number", "null"], "minimum": 0 } } },
+    "availability": { "type": "object", "required": ["heartRate", "distance", "movingTime", "speed", "elevationGain"], "additionalProperties": false, "properties": { "heartRate": { "enum": ["available", "unavailable"] }, "distance": { "enum": ["available", "unavailable"] }, "movingTime": { "enum": ["available", "unavailable"] }, "speed": { "enum": ["available", "unavailable"] }, "elevationGain": { "enum": ["available", "unavailable"] } } },
+    "coverage": { "type": "object", "required": ["heartRate", "distance", "movingTime", "speed", "elevationGain"], "additionalProperties": false, "properties": { "heartRate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }, "distance": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }, "movingTime": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }, "speed": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }, "elevationGain": { "type": ["number", "null"], "minimum": 0, "maximum": 1 } } },
+    "reasons": { "type": "object", "required": ["heartRate", "distance", "movingTime", "speed", "elevationGain"], "additionalProperties": false, "properties": { "heartRate": { "type": ["string", "null"] }, "distance": { "type": ["string", "null"] }, "movingTime": { "type": ["string", "null"] }, "speed": { "type": ["string", "null"] }, "elevationGain": { "type": ["string", "null"] } } },
+    "sources": { "type": "object", "required": ["heartRate", "distance", "movingTime", "speed", "elevationGain"], "additionalProperties": false, "properties": { "heartRate": { "type": ["string", "null"] }, "distance": { "type": ["string", "null"] }, "movingTime": { "type": ["string", "null"] }, "speed": { "type": ["string", "null"] }, "elevationGain": { "type": ["string", "null"] } } },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

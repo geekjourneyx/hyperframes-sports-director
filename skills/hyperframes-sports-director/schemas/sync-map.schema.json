@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://hyperframes.local/schemas/sync-map.schema.json", "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "status", "method", "anchors", "confidence", "residualErrorSeconds", "validInterval", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/sync-map.schema.json" }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 }, "status": { "enum": ["unavailable", "available"] }, "method": { "enum": ["none", "absolute-timestamp", "manual-anchor", "declared-offset"] },
+    "anchors": { "type": "array", "items": { "type": "object", "required": ["mediaSeconds", "activitySeconds"], "additionalProperties": false, "properties": { "mediaSeconds": { "type": "number", "minimum": 0 }, "activitySeconds": { "type": "number", "minimum": 0 } } } },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }, "residualErrorSeconds": { "type": ["number", "null"], "minimum": 0 },
+    "validInterval": { "anyOf": [{ "type": "null" }, { "type": "object", "required": ["startSeconds", "endSeconds"], "additionalProperties": false, "properties": { "startSeconds": { "type": "number", "minimum": 0 }, "endSeconds": { "type": "number", "exclusiveMinimum": 0 } } }] },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  }, "additionalProperties": false,
+  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+}

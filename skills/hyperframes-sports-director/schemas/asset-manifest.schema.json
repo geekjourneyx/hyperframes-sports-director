@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/asset-manifest.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "assetRevision", "status", "designRevision", "lookRevision", "assets", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/asset-manifest.schema.json" },
+    "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 },
+    "assetRevision": { "type": "string", "pattern": "^assets-[a-zA-Z0-9-]+$" },
+    "status": { "enum": ["draft", "available", "frozen", "superseded"] },
+    "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" },
+    "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
+    "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "token": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" },
+    "asset": { "type": "object", "required": ["assetId", "role", "provenance", "portablePath", "colorToken", "optional"], "additionalProperties": false, "properties": { "assetId": { "type": "string", "pattern": "^asset-[a-zA-Z0-9-]+$" }, "role": { "type": "string", "minLength": 1 }, "provenance": { "enum": ["source", "generated-interpretive", "generated-decorative", "licensed"] }, "portablePath": { "$ref": "#/$defs/path" }, "colorToken": { "$ref": "#/$defs/token" }, "optional": { "type": "boolean" } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

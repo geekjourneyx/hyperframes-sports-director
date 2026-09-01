@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/media-index.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "entries", "integrity"],
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/media-index.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z][A-Za-z0-9+.-]*:)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "entry": { "type": "object", "required": ["mediaId", "mediaType", "sourceRootReadOnly", "sourceDigest", "byteSize", "portablePath"], "additionalProperties": false, "properties": { "mediaId": { "type": "string", "pattern": "^media-[a-zA-Z0-9-]+$" }, "mediaType": { "enum": ["video", "image", "audio", "activity", "sidecar", "unsupported"] }, "sourceRootReadOnly": { "const": true }, "sourceDigest": { "$ref": "#/$defs/digest" }, "byteSize": { "type": "integer", "minimum": 0 }, "portablePath": { "$ref": "#/$defs/path" } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

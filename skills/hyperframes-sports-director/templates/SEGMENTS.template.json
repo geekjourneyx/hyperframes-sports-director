@@ -1,0 +1,8 @@
+{
+  "$schema": "https://hyperframes.local/schemas/segments.schema.json",
+  "schemaVersion": "1.0.0",
+  "revision": 1,
+  "sourceMediaIds": [],
+  "segments": [],
+  "integrity": { "digest": null, "upstream": {} }
+}
