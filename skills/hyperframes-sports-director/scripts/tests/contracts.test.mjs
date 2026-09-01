@@ -275,6 +275,27 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   probe.integrity.upstream.mediaIndex = '7'.repeat(64);
   stampIntegrity(probe);
   assertValid(schemas.probe, probe, 'probe owns normalized media facts');
+  const proxyProbe = clone(probe);
+  proxyProbe.media[0].proxy = {
+    kind: 'video', path: 'media/proxies/media-001.mp4', sourceDigest: '1'.repeat(64),
+    transform: {
+      codec: 'h264', maximumWidth: 1280, maximumHeight: 720, watermark: 'ANALYSIS PROXY',
+      preserveTimestamps: true, preserveAudio: true, autoOrient: true,
+    },
+    timeMapping: [{ proxyStartSeconds: 0, originalStartSeconds: 0, durationSeconds: 12, rate: '1/1' }],
+  };
+  stampIntegrity(proxyProbe);
+  assertValid(schemas.probe, proxyProbe, 'proxy record binds the stable media path, digest, and complete 1/1 time mapping');
+  for (const mutate of [
+    (value) => { value.media[0].proxy.sourceDigest = '2'.repeat(64); },
+    (value) => { value.media[0].proxy.path = 'media/proxies/private-source-name.mp4'; },
+    (value) => { value.media[0].proxy.timeMapping[0].rate = '2/1'; },
+  ]) {
+    const invalidProxy = clone(proxyProbe);
+    mutate(invalidProxy);
+    stampIntegrity(invalidProxy);
+    assertInvalid(schemas.probe, invalidProxy, 'proxy lineage and time mapping cannot diverge from the normalized source');
+  }
   const absoluteProbe = clone(probe);
   absoluteProbe.media[0].reviewPath = '/Users/alice/private-ride.mov';
   assertInvalid(schemas.probe, absoluteProbe, 'probe cannot expose an absolute input path');

@@ -276,6 +276,19 @@ function checkProbeReviewPaths(value, schema, errors) {
     if (!REVIEW_EXTENSIONS[media.mediaType].has(extension)) {
       addSemantic(errors, schema, 'E_REVIEW_PATH', `/media/${index}/reviewPath`, 'review path must use the mediaId basename in review/probe with an allowed media extension');
     }
+    if (media.proxy !== undefined && media.proxy !== null) {
+      const expectedPath = media.mediaType === 'image'
+        ? `review/probe/${media.mediaId}.webp`
+        : `media/proxies/${media.mediaId}.${media.mediaType === 'video' ? 'mp4' : 'm4a'}`;
+      const mapping = media.proxy.timeMapping;
+      if (media.proxy.kind !== media.mediaType || media.proxy.sourceDigest !== media.sourceDigest || media.proxy.path !== expectedPath) {
+        addSemantic(errors, schema, 'E_PROXY_SOURCE_REFERENCE', `/media/${index}/proxy`, 'proxy must bind its media kind, source digest, and stable mediaId path');
+      }
+      if (mapping.length !== 1 || mapping[0].proxyStartSeconds !== 0 || mapping[0].originalStartSeconds !== 0
+        || mapping[0].durationSeconds !== media.durationSeconds || mapping[0].rate !== '1/1') {
+        addSemantic(errors, schema, 'E_PROXY_TIME_MAPPING', `/media/${index}/proxy/timeMapping`, 'analysis proxy must preserve the complete original time interval at rate 1/1');
+      }
+    }
   }
 }
 
@@ -289,6 +302,7 @@ function semanticErrors(schema, value) {
   if (name === 'probe') {
     checkUniqueIds(value.media, 'mediaId', '/media', schema, errors);
     checkProbeReviewPaths(value, schema, errors);
+    if (value.media.length > 0) checkExactLineage(value, schema, errors, { mediaIndex: value.integrity.upstream.mediaIndex });
   }
   if (name === 'shot') {
     checkUniqueIds(value.shots, 'shotId', '/shots', schema, errors);

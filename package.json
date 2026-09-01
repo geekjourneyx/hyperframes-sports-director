@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node --test skills/hyperframes-sports-director/scripts/tests/*.test.mjs",
     "test:contracts": "node --test skills/hyperframes-sports-director/scripts/tests/contracts.test.mjs skills/hyperframes-sports-director/scripts/tests/*_contract.test.mjs",
-    "test:media": "node --test skills/hyperframes-sports-director/scripts/tests/probe_media.test.mjs skills/hyperframes-sports-director/scripts/tests/build_proxies.test.mjs skills/hyperframes-sports-director/scripts/tests/render.test.mjs skills/hyperframes-sports-director/scripts/tests/inspect_output.test.mjs",
+    "test:media": "node --test skills/hyperframes-sports-director/scripts/tests/ingest_media.test.mjs skills/hyperframes-sports-director/scripts/tests/probe_media.test.mjs skills/hyperframes-sports-director/scripts/tests/build_proxies.test.mjs",
     "test:skill": "node --test skills/hyperframes-sports-director/scripts/tests/check_structure.test.mjs skills/hyperframes-sports-director/scripts/tests/trigger_eval.test.mjs",
     "eval": "node skills/hyperframes-sports-director/scripts/score_eval.mjs --all-golden",
     "check": "node skills/hyperframes-sports-director/scripts/check_structure.mjs && node skills/hyperframes-sports-director/scripts/check_release.mjs --check-only",
