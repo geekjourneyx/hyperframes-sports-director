@@ -816,6 +816,124 @@ test('state-intent recovery closes the crash after durable state rename and publ
   await validateCommittedDirection(root);
 });
 
+test('partial snapshot-stage writes never publish a partial final snapshot and recover by rolling back safely', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'duringSnapshotStageWrite' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const journal = JSON.parse(await readFile(join(root, 'cache/direction-lock.transaction.json'), 'utf8'));
+  assert.equal(journal.phase, 'workbench-staged');
+  assert.match(journal.snapshotTemp, /^cache\/\.direction-snapshot\.[0-9a-f]{32}\.tmp$/);
+  assert.notEqual(journal.snapshotTemp, journal.workbenchTemp);
+  assert.ok((await stat(join(root, journal.snapshotTemp))).size < Buffer.byteLength(journal.lockedHtml));
+  assert.equal(JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8')).state, 'DIRECTOR_REVIEW_READY');
+  await assert.rejects(stat(join(root, 'review/director-lock.snapshot.html')), (error) => error.code === 'ENOENT');
+
+  const completed = await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  assert.equal(completed.ok, true);
+  await assert.rejects(stat(join(root, journal.snapshotTemp)), (error) => error.code === 'ENOENT');
+  const [snapshot, current] = await Promise.all([
+    lstat(join(root, 'review/director-lock.snapshot.html')),
+    lstat(join(root, 'review/director-workbench.html')),
+  ]);
+  assert.notDeepEqual([snapshot.dev, snapshot.ino], [current.dev, current.ino]);
+  assert.deepEqual((await readdir(join(root, 'review'))).filter((name) => name === 'director-lock.snapshot.html'), ['director-lock.snapshot.html']);
+  await validateCommittedDirection(root);
+});
+
+test('snapshot-stage fsync failure leaves no final bytes and recovery durably completes the exact stage', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'snapshotStageSyncFailure' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const journal = JSON.parse(await readFile(join(root, 'cache/direction-lock.transaction.json'), 'utf8'));
+  assert.equal(journal.phase, 'workbench-staged');
+  assert.equal(SHA(await readFile(join(root, journal.snapshotTemp))), journal.snapshotDigest);
+  await assert.rejects(stat(join(root, 'review/director-lock.snapshot.html')), (error) => error.code === 'ENOENT');
+
+  const recovered = await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  assert.equal(recovered.recovered, true);
+  assert.equal(SHA(await readFile(join(root, 'review/director-lock.snapshot.html'))), journal.snapshotDigest);
+  await assert.rejects(stat(join(root, journal.snapshotTemp)), (error) => error.code === 'ENOENT');
+  await validateCommittedDirection(root);
+});
+
+test('SIGKILL-equivalent after snapshot-stage fsync resumes from the exact journal-owned stage', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'afterSnapshotStageSyncBeforeJournal' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const journal = JSON.parse(await readFile(join(root, 'cache/direction-lock.transaction.json'), 'utf8'));
+  const [snapshotStage, currentStage] = await Promise.all([
+    lstat(join(root, journal.snapshotTemp)),
+    lstat(join(root, journal.workbenchTemp)),
+  ]);
+  assert.notDeepEqual([snapshotStage.dev, snapshotStage.ino], [currentStage.dev, currentStage.ino]);
+  assert.equal(SHA(await readFile(join(root, journal.snapshotTemp))), journal.snapshotDigest);
+  assert.equal(JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8')).state, 'DIRECTOR_REVIEW_READY');
+  await assert.rejects(stat(join(root, 'review/director-lock.snapshot.html')), (error) => error.code === 'ENOENT');
+
+  assert.equal((await lockDirection(root, { now: () => NOW, rebuildWorkbench })).recovered, true);
+  await assert.rejects(stat(join(root, journal.snapshotTemp)), (error) => error.code === 'ENOENT');
+  await validateCommittedDirection(root);
+});
+
+test('recovery verifies and cleans a linked immutable snapshot after crashing before snapshot-stage cleanup', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'afterSnapshotLinkBeforeStageCleanup' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const journal = JSON.parse(await readFile(join(root, 'cache/direction-lock.transaction.json'), 'utf8'));
+  const snapshotPath = join(root, 'review/director-lock.snapshot.html');
+  const snapshotStagePath = join(root, journal.snapshotTemp);
+  const [published, staged] = await Promise.all([lstat(snapshotPath), lstat(snapshotStagePath)]);
+  assert.deepEqual([published.dev, published.ino], [staged.dev, staged.ino]);
+  assert.equal(SHA(await readFile(snapshotPath)), journal.snapshotDigest);
+  assert.match(await readFile(join(root, 'review/director-workbench.html'), 'utf8'), /data-approve/);
+
+  const recovered = await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  assert.equal(recovered.recovered, true);
+  await assert.rejects(stat(snapshotStagePath), (error) => error.code === 'ENOENT');
+  const [snapshot, current] = await Promise.all([lstat(snapshotPath), lstat(join(root, 'review/director-workbench.html'))]);
+  assert.notDeepEqual([snapshot.dev, snapshot.ino], [current.dev, current.ino]);
+  assert.deepEqual((await readdir(join(root, 'review'))).filter((name) => name === 'director-lock.snapshot.html'), ['director-lock.snapshot.html']);
+  await validateCommittedDirection(root);
+});
+
+test('direction-lock journal rejects redirected snapshot stages and snapshot digest drift', async (t) => {
+  const redirected = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(redirected.root, { now: () => NOW, rebuildWorkbench: redirected.rebuildWorkbench, injectFailure: 'afterSnapshotStageSyncBeforeJournal' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const redirectedJournalPath = join(redirected.root, 'cache/direction-lock.transaction.json');
+  const redirectedJournal = JSON.parse(await readFile(redirectedJournalPath, 'utf8'));
+  redirectedJournal.snapshotTemp = 'review/director-lock.snapshot.html';
+  await writeJson(redirectedJournalPath, redirectedJournal);
+  await assert.rejects(
+    () => lockDirection(redirected.root, { now: () => NOW, rebuildWorkbench: redirected.rebuildWorkbench }),
+    (error) => error.code === 'E_LOCK_JOURNAL_INVALID',
+  );
+
+  const drifted = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(drifted.root, { now: () => NOW, rebuildWorkbench: drifted.rebuildWorkbench, injectFailure: 'afterSnapshotStageSyncBeforeJournal' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const driftedJournalPath = join(drifted.root, 'cache/direction-lock.transaction.json');
+  const driftedJournal = JSON.parse(await readFile(driftedJournalPath, 'utf8'));
+  driftedJournal.snapshotDigest = 'f'.repeat(64);
+  await writeJson(driftedJournalPath, driftedJournal);
+  await assert.rejects(
+    () => lockDirection(drifted.root, { now: () => NOW, rebuildWorkbench: drifted.rebuildWorkbench }),
+    (error) => error.code === 'E_LOCK_JOURNAL_INVALID',
+  );
+});
+
 test('pending repair transactions block committed-direction consumers and recover only recognized prior/next pairs', async (t) => {
   const historyFirst = await fixture(t);
   await lockDirection(historyFirst.root, { now: () => NOW, rebuildWorkbench: historyFirst.rebuildWorkbench });
