@@ -511,14 +511,20 @@ test('proposal compiler rejects private data in allowed SVG text and attributes'
 test('proposal compiler rejects delimiter-embedded paths, three-decimal GPS, and unlisted private basenames', async (t) => {
   const variants = [
     {
-      mutation: 'absolute POSIX path recognizer drops key-value delimiter handling',
-      content: '<text>source=/Users/alice/private/session</text>',
+      mutation: 'absolute POSIX path recognizer depends on a finite delimiter list',
+      content: '<text>source?/Users/alice/private/session</text>',
       code: 'E_REFERENCE_ABSOLUTE',
       message: 'prototype SVG text contains an absolute path',
     },
     {
       mutation: 'absolute Windows path recognizer drops punctuation-boundary handling',
       content: '<title>source=C:\\Users\\Alice\\private\\session</title>',
+      code: 'E_REFERENCE_ABSOLUTE',
+      message: 'prototype SVG text contains an absolute path',
+    },
+    {
+      mutation: 'absolute Windows path recognizer omits UNC paths',
+      content: '<text>source=\\\\server\\share\\private</text>',
       code: 'E_REFERENCE_ABSOLUTE',
       message: 'prototype SVG text contains an absolute path',
     },
@@ -537,6 +543,12 @@ test('proposal compiler rejects delimiter-embedded paths, three-decimal GPS, and
     {
       mutation: 'private-basename recognizer drops explicit basename labels',
       content: '<desc>basename=SundayRide.sessionlog</desc>',
+      code: 'E_REFERENCE_PRIVATE_NAME',
+      message: 'prototype SVG text contains a private filename or email',
+    },
+    {
+      mutation: 'private-basename recognizer requires a separator in unlisted basenames',
+      content: '<desc>SundayRide.sessionlog</desc>',
       code: 'E_REFERENCE_PRIVATE_NAME',
       message: 'prototype SVG text contains a private filename or email',
     },

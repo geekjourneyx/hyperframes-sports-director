@@ -102,9 +102,12 @@ const SVG_TEXT_ELEMENTS = new Set(['text', 'tspan', 'title', 'desc']);
 const SVG_LOCAL_REFERENCE_ATTRIBUTES = new Set(['fill', 'stroke', 'clip-path', 'mask']);
 const SVG_SAFE_ATTRIBUTE_VALUE = /^[A-Za-z0-9#.,%+() _-]+$/;
 const SVG_SAFE_ID = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
-const SVG_ABSOLUTE_PATH = /(?:^|[\s"'(=,:;\[\]{}])(?:\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*|[A-Za-z]:[\\/][^\s<>"']+)/i;
+const SVG_POSIX_ABSOLUTE_PATH = /(?:^|[^A-Za-z0-9._~:/-])\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*/;
+const SVG_DRIVE_ABSOLUTE_PATH = /(?:^|[^A-Za-z0-9._~:/\\-])[A-Za-z]:[\\/][^\s<>"']+/i;
+const SVG_UNC_ABSOLUTE_PATH = /(?:^|[^\\])\\\\[A-Za-z0-9._$~-]+\\[^\s<>"']+/;
 const SVG_KNOWN_PRIVATE_BASENAME = /\b[A-Z0-9][A-Z0-9._-]*\.(?:mov|mp4|m4v|mkv|avi|webm|jpg|jpeg|png|webp|heic|tif|tiff|wav|mp3|m4a|aac|flac|fit|gpx|tcx|kml)\b/i;
 const SVG_UNLISTED_PRIVATE_BASENAME = /(?:^|[^A-Za-z0-9._-])(?=[A-Za-z0-9._-]*[-_])[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z][A-Za-z0-9-]*(?=$|[^A-Za-z0-9._-])/;
+const SVG_CAMELCASE_PRIVATE_BASENAME = /(?:^|[^A-Za-z0-9._-])(?=[A-Za-z0-9_-]*[a-z0-9][A-Z])[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*\.[A-Za-z][A-Za-z0-9-]*(?=$|[^A-Za-z0-9._-])/;
 const SVG_LABELED_PRIVATE_BASENAME = /\b(?:source|file(?:name)?|basename|asset|media)\s*[:=]\s*[A-Za-z0-9][A-Za-z0-9._-]*(?:\.[A-Za-z][A-Za-z0-9-]*)?\b/i;
 
 function activePrototype(message) {
@@ -121,7 +124,7 @@ function containsRawGpsPair(value) {
 
 function assertSvgPrivacy(value, kind) {
   const at = `prototype SVG ${kind}`;
-  if (SVG_ABSOLUTE_PATH.test(value)) {
+  if (SVG_POSIX_ABSOLUTE_PATH.test(value) || SVG_DRIVE_ABSOLUTE_PATH.test(value) || SVG_UNC_ABSOLUTE_PATH.test(value)) {
     throw new DirectionProposalError('E_REFERENCE_ABSOLUTE', `${at} contains an absolute path`);
   }
   if (/\braw\s*gps\b|\b(?:lat(?:itude)?|lon(?:gitude)?)\s*[:=]?\s*[+-]?\d{1,3}\.\d{2,}\b/i.test(value) || containsRawGpsPair(value)) {
@@ -133,6 +136,7 @@ function assertSvgPrivacy(value, kind) {
   if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(value)
     || SVG_KNOWN_PRIVATE_BASENAME.test(value)
     || SVG_UNLISTED_PRIVATE_BASENAME.test(value)
+    || SVG_CAMELCASE_PRIVATE_BASENAME.test(value)
     || SVG_LABELED_PRIVATE_BASENAME.test(value)) {
     throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', `${at} contains a private filename or email`);
   }
