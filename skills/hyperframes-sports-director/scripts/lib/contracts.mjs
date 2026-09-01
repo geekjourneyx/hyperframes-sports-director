@@ -330,6 +330,28 @@ function semanticErrors(schema, value) {
   if (name === 'shot') {
     checkUniqueIds(value.shots, 'shotId', '/shots', schema, errors);
     checkBounds(value.shots, '/shots', schema, errors);
+    if (value.status === 'available' && value.shots.length === 0) {
+      addSemantic(errors, schema, 'E_SHOT_STATUS', '/shots', 'available SHOTS requires at least one Agent-authored shot');
+    }
+    if (value.status === 'unavailable' && value.shots.length !== 0) {
+      addSemantic(errors, schema, 'E_SHOT_STATUS', '/shots', 'unavailable SHOTS cannot contain shots');
+    }
+    for (let index = 0; index < value.shots.length; index += 1) {
+      const shot = value.shots[index];
+      for (let audioIndex = 0; audioIndex < shot.audioSpans.length; audioIndex += 1) {
+        const span = shot.audioSpans[audioIndex];
+        if (span.sourceInSeconds < shot.sourceInSeconds || span.sourceOutSeconds > shot.sourceOutSeconds || span.sourceInSeconds >= span.sourceOutSeconds) {
+          addSemantic(errors, schema, 'E_AUDIO_SPAN_BOUNDS', `/shots/${index}/audioSpans/${audioIndex}`, 'audio spans must remain within the shot interval');
+        }
+      }
+      if ((shot.cameraRole === 'unknown' || shot.actionRole === 'unknown') && shot.confidence > 0.49) {
+        addSemantic(errors, schema, 'E_UNKNOWN_CONFIDENCE', `/shots/${index}/confidence`, 'unknown semantic roles require low confidence');
+      }
+    }
+    if (value.shots.length > 0) checkExactLineage(value, schema, errors, {
+      probe: value.integrity.upstream.probe,
+      segments: value.integrity.upstream.segments,
+    });
   }
   if (name === 'segments') {
     checkUniqueIds(value.segments, 'segmentId', '/segments', schema, errors);
@@ -339,6 +361,12 @@ function semanticErrors(schema, value) {
       const segment = value.segments[index];
       if (!mediaIds.has(segment.mediaId)) addSemantic(errors, schema, 'E_PROBE_MEDIA_REFERENCE', `/segments/${index}/mediaId`, 'segment mediaId must resolve in sourceMediaIds');
       if (segment.probeDigest !== value.integrity.upstream.probe) addSemantic(errors, schema, 'E_PROBE_DIGEST_REFERENCE', `/segments/${index}/probeDigest`, 'segment probeDigest must match integrity.upstream.probe');
+      for (let frameIndex = 0; frameIndex < segment.evidenceFrames.length; frameIndex += 1) {
+        const frame = segment.evidenceFrames[frameIndex];
+        if (frame.sourceTimeSeconds < segment.sourceInSeconds || frame.sourceTimeSeconds > segment.sourceOutSeconds) {
+          addSemantic(errors, schema, 'E_EVIDENCE_FRAME_BOUNDS', `/segments/${index}/evidenceFrames/${frameIndex}`, 'evidence frame time must remain within its segment');
+        }
+      }
     }
     if (value.sourceMediaIds.length > 0 || value.segments.length > 0) {
       checkExactLineage(value, schema, errors, { probe: value.integrity.upstream.probe });

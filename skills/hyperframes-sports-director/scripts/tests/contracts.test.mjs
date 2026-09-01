@@ -209,10 +209,12 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
 
   const shots = await template('SHOT');
   shots.status = 'available';
+  shots.integrity.upstream = { probe: '8'.repeat(64), segments: '9'.repeat(64) };
   shots.shots = [
-    { shotId: 'shot-001', mediaId: 'media-001', sourceInSeconds: 0, sourceOutSeconds: 2, sourceDurationSeconds: 4, evidenceFrames: ['analysis/evidence/shot-001.webp'], confidence: 0.9 },
-    { shotId: 'shot-002', mediaId: 'media-001', sourceInSeconds: 2, sourceOutSeconds: 4, sourceDurationSeconds: 4, evidenceFrames: ['analysis/evidence/shot-002.webp'], confidence: 0.8 },
+    { shotId: 'shot-001', mediaId: 'media-001', segmentId: 'segment-001', sourceDigest: '1'.repeat(64), sourceInSeconds: 0, sourceOutSeconds: 2, sourceDurationSeconds: 4, cameraRole: 'wide', actionRole: 'move', environmentTags: ['road'], subjectTags: ['rider'], quality: { motionIntensity: 'medium', blur: 'none', shake: 'minor', exposure: 'good', horizon: 'level', occlusion: 'none' }, continuity: { screenDirection: 'left-to-right', motionDirection: 'forward', subjectEntry: 'left', subjectExit: 'right', location: 'unknown', timeRelation: 'continuous' }, audioSpans: [], duplicateGroup: null, setupTailLikelihood: 0.1, evidenceFrames: ['analysis/evidence/shot-001.webp'], confidence: 0.9 },
+    { shotId: 'shot-002', mediaId: 'media-001', segmentId: 'segment-002', sourceDigest: '1'.repeat(64), sourceInSeconds: 2, sourceOutSeconds: 4, sourceDurationSeconds: 4, cameraRole: 'wide', actionRole: 'move', environmentTags: ['road'], subjectTags: ['rider'], quality: { motionIntensity: 'medium', blur: 'none', shake: 'minor', exposure: 'good', horizon: 'level', occlusion: 'none' }, continuity: { screenDirection: 'left-to-right', motionDirection: 'forward', subjectEntry: 'left', subjectExit: 'right', location: 'unknown', timeRelation: 'continuous' }, audioSpans: [], duplicateGroup: null, setupTailLikelihood: 0.1, evidenceFrames: ['analysis/evidence/shot-002.webp'], confidence: 0.8 },
   ];
+  stampIntegrity(shots);
   assertValid(schemas.shot, shots, 'unique shot IDs');
   const duplicateShots = clone(shots);
   duplicateShots.shots[1].shotId = 'shot-001';
@@ -324,9 +326,9 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   segments.sourceMediaIds = ['media-001'];
   segments.integrity.upstream.probe = '8'.repeat(64);
   segments.segments = [{
-    segmentId: 'segment-001', mediaId: 'media-001', probeDigest: '8'.repeat(64),
+    segmentId: 'segment-001', mediaId: 'media-001', mediaType: 'video', sourceDigest: '1'.repeat(64), probeDigest: '8'.repeat(64),
     sourceInSeconds: 1, sourceOutSeconds: 5, sourceDurationSeconds: 12,
-    reviewPath: 'analysis/segments/segment-001.webp',
+    sceneScore: 0, motionScore: 0, audioPresent: true, reviewPath: 'analysis/segments/segment-001.webp', evidenceFrames: [{ path: 'analysis/evidence/segment-001/frame.webp', sourceTimeSeconds: 2 }],
   }];
   stampIntegrity(segments);
   assertValid(schemas.segments, segments, 'segments reference exact probe media IDs and digest');
@@ -616,9 +618,9 @@ test('artifact validation rejects digest mismatch and enforces explicit upstream
   segments.sourceMediaIds = ['media-001'];
   segments.integrity.upstream = { probe: '1'.repeat(64) };
   segments.segments = [{
-    segmentId: 'segment-001', mediaId: 'media-001', probeDigest: '1'.repeat(64),
+    segmentId: 'segment-001', mediaId: 'media-001', mediaType: 'video', sourceDigest: '1'.repeat(64), probeDigest: '1'.repeat(64),
     sourceInSeconds: 0, sourceOutSeconds: 1, sourceDurationSeconds: 2,
-    reviewPath: 'review/segments/segment-001.webp',
+    sceneScore: 0, motionScore: 0, audioPresent: true, reviewPath: 'review/segments/segment-001.webp', evidenceFrames: [{ path: 'analysis/evidence/segment-001/frame.webp', sourceTimeSeconds: 0.5 }],
   }];
   stampIntegrity(segments);
   assertValid(segmentsSchema, segments, 'SEGMENTS binds its explicit probe digest');
