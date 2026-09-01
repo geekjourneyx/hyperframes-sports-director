@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { open, readFile, rename, unlink } from 'node:fs/promises';
 
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
 import { loadDirectionSources, validateDirectionProposals, validateProposalPreviewArtifacts } from './direction-proposals.mjs';
-import { buildWorkbenchModel, renderWorkbenchHtml } from './director-workbench.mjs';
+import { renderWorkbenchHtml } from './director-workbench.mjs';
 import { assertNoPendingRepairTransaction } from './invalidation.mjs';
 import { projectPath, sha256File } from './media.mjs';
 import { validateGateEvidence } from './project-state.mjs';
@@ -12,6 +12,8 @@ import { validateGateEvidence } from './project-state.mjs';
 const DISPLAYED_ROLES = ['assetPlan', 'editBrief', 'evidence', 'musicPlan', 'proposals', 'roughCut'];
 const DIGEST = /^[0-9a-f]{64}$/;
 const LOCKED_STATES = new Set(['DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED']);
+export const LOCK_WORKBENCH_SNAPSHOT_PATH = 'review/workbench-assets/director-lock.snapshot.html';
+const CURRENT_WORKBENCH_PATH = 'review/director-workbench.html';
 
 export class ApprovalError extends Error {
   constructor(code, message, details = {}) { super(message); this.name = 'ApprovalError'; this.code = code; Object.assign(this, details); }
@@ -197,21 +199,91 @@ function canonicalWorkbenchState(state) {
   result.integrity.digest = computeArtifactDigest(result);
   return result;
 }
-export function renderLockedWorkbench(state, selectedCandidate, workbenchModel) {
+function currentGateEvidence(state) {
+  const transition = state.transitions?.at(-1);
+  const roles = new Set(Object.keys(transition?.evidenceDigests ?? {}));
+  return state.gateEvidence?.filter(({ gate, role, validity }) => gate === state.state && roles.has(role) && validity === 'valid')
+    .map(({ role, revision, digest, qualifiers }) => ({ role, revision, digest, qualifiers: [...qualifiers] })) ?? [];
+}
+function workbenchStateView(state) {
+  return { state: state.state, revision: state.revision, integrity: { digest: state.integrity.digest } };
+}
+function buildLockedWorkbenchModel(state, selectedCandidate, workbenchModel) {
   if (!workbenchModel?.proposals?.candidates) fail('E_WORKBENCH_REBUILD', 'locked workbench requires the accepted evidence model');
   const model = structuredClone(workbenchModel);
-  model.state = canonicalWorkbenchState(state);
+  const canonicalState = canonicalWorkbenchState(state);
+  model.state = workbenchStateView(canonicalState);
+  model.brief = {
+    revision: model.brief.revision, sport: structuredClone(model.brief.sport),
+    story: structuredClone(model.brief.story), duration: structuredClone(model.brief.duration), copy: structuredClone(model.brief.copy),
+  };
   model.proposals.candidates = [structuredClone(selectedCandidate)];
   model.approvalAvailable = false;
   model.lockedBinding = lockedWorkbenchBinding(state, selectedCandidate);
-  return renderWorkbenchHtml(model);
+  model.currentGateEvidence = currentGateEvidence(canonicalState);
+  return model;
+}
+function renderLockSnapshotModel(model) {
+  const html = renderWorkbenchHtml(model);
+  const encoded = JSON.stringify(model).replaceAll('<', '\\u003c');
+  return html.replace('  <script src=', `  <script type="application/json" data-lock-workbench-model>${encoded}</script>\n  <script src=`);
+}
+function parseLockSnapshot(html) {
+  const match = html.match(/<script type="application\/json" data-lock-workbench-model>([^<]+)<\/script>/);
+  try { return JSON.parse(match?.[1] ?? ''); }
+  catch (error) { fail('E_DIRECTION_UNCOMMITTED', 'immutable lock workbench snapshot lacks its canonical evidence model', { cause: error }); }
+}
+export function renderLockedWorkbench(state, selectedCandidate, workbenchModel) {
+  return renderLockSnapshotModel(buildLockedWorkbenchModel(state, selectedCandidate, workbenchModel));
+}
+function currentWorkbenchBinding(state, snapshotDigest, selectedCandidate) {
+  return computeArtifactDigest({
+    stateRevision: state.revision, stateDigest: state.integrity.digest,
+    lockSnapshotPath: LOCK_WORKBENCH_SNAPSHOT_PATH, lockSnapshotDigest: snapshotDigest,
+    selectedCandidateId: selectedCandidate.candidateId, selectedCandidateDigest: computeArtifactDigest(selectedCandidate),
+  });
+}
+function buildCurrentWorkbenchModel(state, snapshotDigest, selectedCandidate, snapshotModel) {
+  const model = structuredClone(snapshotModel);
+  model.state = workbenchStateView(state);
+  model.proposals.candidates = [structuredClone(selectedCandidate)];
+  model.approvalAvailable = false;
+  model.lockedBinding = lockedWorkbenchBinding(state, selectedCandidate);
+  model.currentViewBinding = currentWorkbenchBinding(state, snapshotDigest, selectedCandidate);
+  model.currentGateEvidence = currentGateEvidence(state);
+  return model;
+}
+async function writeCurrentWorkbench(projectRoot, html) {
+  const path = projectPath(projectRoot, CURRENT_WORKBENCH_PATH);
+  const temporary = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(html);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await rename(temporary, path);
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
+}
+async function readCommittedWorkbenchEvidence(projectRoot) {
+  let html;
+  try { html = await readFile(projectPath(projectRoot, LOCK_WORKBENCH_SNAPSHOT_PATH), 'utf8'); }
+  catch (error) { fail('E_DIRECTION_UNCOMMITTED', 'immutable lock workbench snapshot is missing or unreadable', { cause: error }); }
+  const digest = createHash('sha256').update(html).digest('hex');
+  const model = parseLockSnapshot(html);
+  return { html, digest, model };
 }
 
 export async function validateCommittedDirection(projectRoot) {
   try { await assertNoPendingRepairTransaction(projectRoot); }
   catch (error) { fail(error.code ?? 'E_REPAIR_PENDING', error.message, { cause: error }); }
-  const [design, look, state, approval, proposals, html] = await Promise.all([
-    readContract(projectRoot, 'direction/DESIGN_SYSTEM.json', 'design-system', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/LOOK_PROFILE.json', 'look-profile', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'PROJECT_STATE.json', 'project-state', 'E_DIRECTION_UNCOMMITTED'), readContract(projectRoot, 'direction/DIRECTOR_APPROVAL.json', 'director-approval', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/DIRECTION_PROPOSALS.json', 'direction-proposals', 'E_DIRECTION_PAIR_INVALID'), readFile(projectPath(projectRoot, 'review/director-workbench.html'), 'utf8'),
+  const [design, look, state, approval, proposals, snapshot] = await Promise.all([
+    readContract(projectRoot, 'direction/DESIGN_SYSTEM.json', 'design-system', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/LOOK_PROFILE.json', 'look-profile', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'PROJECT_STATE.json', 'project-state', 'E_DIRECTION_UNCOMMITTED'), readContract(projectRoot, 'direction/DIRECTOR_APPROVAL.json', 'director-approval', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/DIRECTION_PROPOSALS.json', 'direction-proposals', 'E_DIRECTION_PAIR_INVALID'), readCommittedWorkbenchEvidence(projectRoot),
   ]);
   if (!LOCKED_STATES.has(state.state)) fail('E_DIRECTION_UNCOMMITTED', 'consumers require a state-committed frozen design/Look pair');
   const transitions = state.transitions.filter(({ to }) => to === 'DIRECTOR_LOCK'); if (transitions.length !== 1) fail('E_DIRECTION_UNCOMMITTED', 'exactly one DIRECTOR_LOCK transition is required');
@@ -224,14 +296,62 @@ export async function validateCommittedDirection(projectRoot) {
   const selected = proposals.candidates.find(({ candidateId }) => candidateId === approval.selectedCandidateId); if (!selected) fail('E_DIRECTION_UNCOMMITTED', 'locked candidate no longer resolves');
   const candidateDigest = computeArtifactDigest(selected); const expectedUpstream = { approval: approval.integrity.digest, proposal: proposals.integrity.digest, selectedCandidate: candidateDigest, selectedDesign: computeArtifactDigest(selected.designCandidate), selectedLook: computeArtifactDigest(selected.lookCandidate) };
   if (!stableEqual(design.integrity.upstream, expectedUpstream) || !stableEqual(look.integrity.upstream, expectedUpstream) || !stableEqual(design.selectedDirection?.candidate, selected) || design.selectedDirection?.candidateId !== selected.candidateId || design.selectedDirection?.digest !== candidateDigest || !stableEqual(look.selectedLook, selected.lookCandidate) || look.directionBinding?.candidateId !== selected.candidateId || look.directionBinding?.candidateDigest !== candidateDigest) fail('E_DIRECTION_UNCOMMITTED', 'frozen contracts do not preserve the exact selected proposal origins');
-  const workbenchDigest = createHash('sha256').update(html).digest('hex'); const records = state.gateEvidence.filter(({ gate }) => gate === 'DIRECTOR_LOCK');
+  const workbenchDigest = snapshot.digest; const records = state.gateEvidence.filter(({ gate }) => gate === 'DIRECTOR_LOCK');
   if (records.some(({ producerCommand }) => producerCommand !== 'lock_direction.mjs')) fail('E_DIRECTION_UNCOMMITTED', 'DIRECTOR_LOCK evidence producer is not authoritative');
   try { validateGateEvidence('DIRECTOR_LOCK', records, { DESIGN_SYSTEM: { revision: design.revision, digest: design.integrity.digest }, LOOK_PROFILE: { revision: look.revision, digest: look.integrity.digest }, DIRECTOR_APPROVAL: { revision: approval.revision, digest: approval.integrity.digest }, WORKBENCH: { revision: lockRevision, digest: workbenchDigest } }, { timestamp: transition.at }); }
   catch (error) { fail('E_DIRECTION_UNCOMMITTED', error.message, { cause: error }); }
   const evidence = transition.evidenceDigests;
-  const workbenchModel = await buildWorkbenchModel(projectRoot);
-  if (transition.evidenceRevisions.DESIGN_SYSTEM !== design.revision || transition.evidenceRevisions.LOOK_PROFILE !== look.revision || transition.evidenceRevisions.DIRECTOR_APPROVAL !== approval.revision || evidence.DESIGN_SYSTEM !== design.integrity.digest || evidence.LOOK_PROFILE !== look.integrity.digest || evidence.DIRECTOR_APPROVAL !== approval.integrity.digest || design.approvalDigest !== approval.integrity.digest || look.approvalDigest !== approval.integrity.digest || evidence.WORKBENCH !== workbenchDigest || html !== renderLockedWorkbench(state, selected, workbenchModel)) fail('E_DIRECTION_UNCOMMITTED', 'committed direction evidence or canonical workbench is stale');
-  return { design, look, state, approval, workbenchDigest };
+  const snapshotStateValidation = stableEqual(Object.keys(snapshot.model?.state ?? {}).sort(), ['integrity', 'revision', 'state'])
+    && stableEqual(Object.keys(snapshot.model?.state?.integrity ?? {}).sort(), ['digest'])
+    && snapshot.model.state.state === 'DIRECTOR_LOCK'
+    && Number.isInteger(snapshot.model.state.revision)
+    && DIGEST.test(snapshot.model.state.integrity.digest ?? '');
+  const snapshotExact = snapshot.model?.state?.state === 'DIRECTOR_LOCK'
+    && snapshot.model.state.revision === lockRevision
+    && snapshot.model.approvalAvailable === false
+    && snapshot.model.proposals?.candidates?.length === 1
+    && stableEqual(snapshot.model.proposals.candidates[0], selected)
+    && stableEqual(snapshot.model.displayedArtifactDigests, approval.displayedArtifactDigests)
+    && snapshot.model.sourceProposalDigest === proposals.integrity.digest
+    && snapshot.model.lockedBinding === lockedWorkbenchBinding(state, selected)
+    && snapshot.html === renderLockSnapshotModel(snapshot.model);
+  if (transition.evidenceRevisions.DESIGN_SYSTEM !== design.revision || transition.evidenceRevisions.LOOK_PROFILE !== look.revision || transition.evidenceRevisions.DIRECTOR_APPROVAL !== approval.revision || evidence.DESIGN_SYSTEM !== design.integrity.digest || evidence.LOOK_PROFILE !== look.integrity.digest || evidence.DIRECTOR_APPROVAL !== approval.integrity.digest || design.approvalDigest !== approval.integrity.digest || look.approvalDigest !== approval.integrity.digest || evidence.WORKBENCH !== workbenchDigest || !snapshotStateValidation || !snapshotExact) fail('E_DIRECTION_UNCOMMITTED', 'committed direction evidence or immutable workbench snapshot is stale');
+  if (state.state === 'DIRECTOR_LOCK') {
+    let current;
+    try { current = await readFile(projectPath(projectRoot, CURRENT_WORKBENCH_PATH), 'utf8'); }
+    catch (error) { fail('E_DIRECTION_UNCOMMITTED', 'current lock workbench is missing', { cause: error }); }
+    if (current !== snapshot.html) fail('E_DIRECTION_UNCOMMITTED', 'current DIRECTOR_LOCK workbench differs from its immutable snapshot');
+  }
+  return { design, look, state, approval, workbenchDigest, workbenchSnapshotPath: LOCK_WORKBENCH_SNAPSHOT_PATH, selectedCandidate: selected, snapshotModel: snapshot.model };
+}
+
+export async function buildPostLockWorkbench(projectRoot) {
+  const committed = await validateCommittedDirection(projectRoot);
+  const html = committed.state.state === 'DIRECTOR_LOCK'
+    ? renderLockSnapshotModel(committed.snapshotModel)
+    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel));
+  await writeCurrentWorkbench(projectRoot, html);
+  return {
+    ok: true, path: CURRENT_WORKBENCH_PATH, digest: createHash('sha256').update(html).digest('hex'),
+    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate),
+    stateRevision: committed.state.revision, lockSnapshotPath: committed.workbenchSnapshotPath, lockSnapshotDigest: committed.workbenchDigest,
+  };
+}
+
+export async function validatePostLockWorkbench(projectRoot) {
+  const committed = await validateCommittedDirection(projectRoot);
+  let current;
+  try { current = await readFile(projectPath(projectRoot, CURRENT_WORKBENCH_PATH), 'utf8'); }
+  catch (error) { fail('E_WORKBENCH_CURRENT_STALE', 'current post-lock workbench is missing', { cause: error }); }
+  const expected = committed.state.state === 'DIRECTOR_LOCK'
+    ? renderLockSnapshotModel(committed.snapshotModel)
+    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel));
+  if (current !== expected) fail('E_WORKBENCH_CURRENT_STALE', 'current post-lock workbench does not match its current-state binding');
+  return {
+    ok: true, path: CURRENT_WORKBENCH_PATH, digest: createHash('sha256').update(current).digest('hex'),
+    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate),
+    stateRevision: committed.state.revision, lockSnapshotDigest: committed.workbenchDigest,
+  };
 }
 
 export { DISPLAYED_ROLES };

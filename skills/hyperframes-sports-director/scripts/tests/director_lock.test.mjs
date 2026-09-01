@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { computeArtifactDigest } from '../lib/contracts.mjs';
+import * as approvalModule from '../lib/approval.mjs';
 import {
   ApprovalError,
   compileApprovedDesign,
@@ -208,6 +209,46 @@ async function fixture(t) {
     return { html: canonicalHtml };
   };
   return { root, approval, proposals, candidates, rebuildWorkbench };
+}
+
+async function advanceProjectState(root, next, timestamp) {
+  const path = join(root, 'PROJECT_STATE.json');
+  const state = JSON.parse(await readFile(path, 'utf8'));
+  const previous = state.state;
+  const revision = state.revision + 1;
+  let artifacts = [{ role: `${next}_EVIDENCE`, qualifier: 'accepted', revision, digest: HEX(`${next}:${revision}`) }];
+  if (next === 'STYLE_ANCHOR') {
+    const [design, look] = await Promise.all([
+      readFile(join(root, 'direction/DESIGN_SYSTEM.json'), 'utf8').then(JSON.parse),
+      readFile(join(root, 'direction/LOOK_PROFILE.json'), 'utf8').then(JSON.parse),
+    ]);
+    artifacts = [
+      { role: 'DESIGN_SYSTEM', qualifier: 'frozen', revision: design.revision, digest: design.integrity.digest },
+      { role: 'LOOK_PROFILE', qualifier: 'frozen', revision: look.revision, digest: look.integrity.digest },
+      { role: 'ASSET_PLAN', qualifier: 'approved', revision, digest: HEX(`ASSET_PLAN:${revision}`) },
+    ];
+  } else if (next === 'ASSET_PRODUCTION') {
+    artifacts = [
+      { role: 'STYLE_ANCHOR', qualifier: 'accepted', revision, digest: HEX(`STYLE_ANCHOR:${revision}`) },
+      { role: 'REPRESENTATIVE_COMBINATION', qualifier: 'accepted', revision, digest: HEX(`REPRESENTATIVE_COMBINATION:${revision}`) },
+    ];
+  }
+  state.previousState = previous;
+  state.state = next;
+  state.stateEnteredAt = timestamp;
+  state.revision = revision;
+  state.gateEvidence.push(...artifacts.map(({ role, qualifier, revision: artifactRevision, digest }) => ({
+    gate: next, role, revision: artifactRevision, digest, timestamp,
+    producerCommand: `fixture-${next.toLowerCase()}.mjs`, qualifiers: ['accepted'],
+    validity: 'valid', invalidatedAt: null,
+  })).map((record, index) => ({ ...record, qualifiers: [artifacts[index].qualifier] })));
+  state.transitions.push({
+    from: previous, to: next, at: timestamp,
+    evidenceDigests: Object.fromEntries(artifacts.map(({ role, digest }) => [role, digest])),
+    evidenceRevisions: Object.fromEntries(artifacts.map(({ role, revision: artifactRevision }) => [role, artifactRevision])),
+  });
+  await writeJson(path, state);
+  return state;
 }
 
 test('approval validation selects exactly one complete current proposal and compilation follows the full lifecycle', async (t) => {
@@ -466,6 +507,78 @@ test('committed direction validates schemas, exact gate records, frozen origins,
   await lockDirection(root, { now: () => NOW, rebuildWorkbench });
   await writeFile(join(root, 'review/director-workbench.html'), '<html>forged locked view</html>\n');
   await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+});
+
+test('post-lock workbench rebuild advances current evidence without changing immutable approval evidence', async (t) => {
+  assert.equal(typeof approvalModule.buildPostLockWorkbench, 'function');
+  assert.equal(typeof approvalModule.validatePostLockWorkbench, 'function');
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const snapshotPath = join(root, 'review/workbench-assets/director-lock.snapshot.html');
+  const snapshot = await readFile(snapshotPath, 'utf8');
+  assert.equal(await readFile(join(root, 'review/director-workbench.html'), 'utf8'), snapshot);
+
+  await advanceProjectState(root, 'STYLE_ANCHOR', '2026-09-01T12:10:00.000Z');
+  await approvalModule.buildPostLockWorkbench(root);
+
+  const timelinePath = join(root, 'edit/TIMELINE.json');
+  const timeline = JSON.parse(await readFile(timelinePath, 'utf8'));
+  timeline.revision += 1;
+  timeline.timelineRevision = 'timeline-final-3';
+  timeline.phase = 'final';
+  timeline.items[0].sourceReference = { kind: 'original', path: 'media/originals/media-video-001.mp4', digest: timeline.items[0].sourceReference.digest };
+  await writeJson(timelinePath, timeline);
+  await advanceProjectState(root, 'ASSET_PRODUCTION', '2026-09-01T12:20:00.000Z');
+  await advanceProjectState(root, 'MOTION_COMPOSITION', '2026-09-01T12:30:00.000Z');
+
+  const rebuilt = await approvalModule.buildPostLockWorkbench(root);
+  const current = await readFile(join(root, 'review/director-workbench.html'), 'utf8');
+  assert.notEqual(current, snapshot);
+  assert.match(current, /data-state="MOTION_COMPOSITION"/);
+  assert.match(current, /data-current-view-binding="[0-9a-f]{64}"/);
+  for (const evidence of ['KEY FRAMES', 'SHOT LEDGER / ROUGH CUT', 'STORY ARC', 'LOCAL MUSIC', 'COMPONENT / HERO PLAN', 'RISKS', 'CURRENT GATE EVIDENCE']) {
+    assert.match(current, new RegExp(evidence.replaceAll('/', '\\/')));
+  }
+  assert.match(current, /Monumental Quiet/);
+  assert.doesNotMatch(current, /Kinetic Ledger|data-approve|Approve/);
+  assert.equal(await readFile(snapshotPath, 'utf8'), snapshot);
+  assert.equal((await stat(snapshotPath)).isFile(), true);
+  assert.deepEqual((await readdir(join(root, 'review/workbench-assets'))).filter((name) => name.startsWith('director-lock.')), ['director-lock.snapshot.html']);
+  assert.equal((await approvalModule.validatePostLockWorkbench(root)).digest, rebuilt.digest);
+  assert.equal((await validateCommittedDirection(root)).state.state, 'MOTION_COMPOSITION');
+});
+
+test('immutable lock snapshot authorizes direction while mutable current-view binding detects stale bytes', async (t) => {
+  assert.equal(typeof approvalModule.buildPostLockWorkbench, 'function');
+  assert.equal(typeof approvalModule.validatePostLockWorkbench, 'function');
+  const { root, rebuildWorkbench } = await fixture(t);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  await advanceProjectState(root, 'STYLE_ANCHOR', '2026-09-01T12:10:00.000Z');
+  await approvalModule.buildPostLockWorkbench(root);
+  const currentPath = join(root, 'review/director-workbench.html');
+  const current = await readFile(currentPath, 'utf8');
+  await writeFile(currentPath, `${current}\n<!-- stale current view -->\n`);
+  assert.equal((await validateCommittedDirection(root)).state.state, 'STYLE_ANCHOR');
+  await assert.rejects(() => approvalModule.validatePostLockWorkbench(root), (error) => error.code === 'E_WORKBENCH_CURRENT_STALE');
+
+  await approvalModule.buildPostLockWorkbench(root);
+  const snapshotPath = join(root, 'review/workbench-assets/director-lock.snapshot.html');
+  const snapshot = await readFile(snapshotPath, 'utf8');
+  await writeFile(snapshotPath, `${snapshot}\n<!-- forged lock evidence -->\n`);
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_DIRECTION_UNCOMMITTED');
+});
+
+test('immutable lock evidence model excludes hidden state fields that can disclose private paths', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  const statePath = join(root, 'PROJECT_STATE.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.gateEvidence[0].producerCommand = '/Users/alice/Private Ride/action.mov';
+  await writeJson(statePath, state);
+  await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  const snapshot = await readFile(join(root, 'review/workbench-assets/director-lock.snapshot.html'), 'utf8');
+  assert.doesNotMatch(snapshot, /\/Users\/alice|Private Ride|action\.mov/);
+  assert.match(snapshot, /KEY FRAMES|SHOT LEDGER \/ ROUGH CUT/);
+  await validateCommittedDirection(root);
 });
 
 test('repair persistence serializes attempts and crash recovery prevents split history/state', async (t) => {

@@ -16,7 +16,11 @@ const CHROME = Object.freeze({
   background: '#050505', surface: '#0D0D0D', surfaceRaised: '#141414', textPrimary: '#F5F2EA',
   textSecondary: '#A8A29A', accent: '#C9A86A', danger: '#E36B5D', line: '#2A2A2A',
 });
-const STAGES = ['INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT', 'DIRECTOR_REVIEW_READY'];
+const STAGES = [
+  'INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT', 'DIRECTOR_REVIEW_READY',
+  'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION',
+  'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED',
+];
 const MIME = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.css', 'text/css; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'],
   ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.png', 'image/png'], ['.webp', 'image/webp'], ['.svg', 'image/svg+xml'],
@@ -137,6 +141,12 @@ function renderTimelineItem(item, total) {
   return `<div class="timeline-clip" style="flex-basis:${basis.toFixed(3)}%"><strong>${escapeHtml(item.itemId)}</strong><br>${compactTime(item.destinationInSeconds)}–${compactTime(item.destinationOutSeconds)}</div>`;
 }
 
+function renderCurrentGateEvidence(model) {
+  const records = model.currentGateEvidence ?? [];
+  if (!records.length) return '';
+  return `<section class="rail-section"><h3>CURRENT GATE EVIDENCE</h3><p class="rail-copy">${escapeHtml(model.state.state.replaceAll('_', ' '))} · revision ${model.state.revision}</p><ul class="rail-list">${records.map(({ role, digest }) => `<li>${escapeHtml(role.replaceAll('_', ' '))} · ${escapeHtml(digest.slice(0, 12))}</li>`).join('')}</ul></section>`;
+}
+
 function tokenStyle() {
   return Object.entries(CHROME).map(([key, value]) => `--hf-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}:${value}`).join(';');
 }
@@ -145,7 +155,7 @@ function renderContent(model) {
   const active = model.proposals.candidates[0];
   const total = Math.max(...model.timeline.items.map(({ destinationOutSeconds }) => destinationOutSeconds), 1);
   const locked = typeof model.lockedBinding === 'string';
-  const stageIndex = locked ? STAGES.length - 1 : STAGES.indexOf(model.state.state);
+  const stageIndex = Math.max(0, STAGES.indexOf(model.state.state));
   const gateLabel = locked ? 'DIRECTOR LOCK' : 'DIRECTOR REVIEW';
   const gateNote = locked ? 'Read-only' : 'One approval';
   return `<main class="workbench-shell">
@@ -164,6 +174,7 @@ function renderContent(model) {
   <aside class="production-rail">
     <div class="rail-kicker"><span>${gateLabel}</span><span>Rev ${model.proposals.revision}</span></div>
     <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}</ol>
+    ${renderCurrentGateEvidence(model)}
     <section class="rail-section"><h3>BRIEF</h3><h2>${escapeHtml(model.brief.copy.title ?? 'Untitled journey')}</h2><p class="rail-copy">${escapeHtml(model.brief.story.tone ?? 'observational')} · ${model.brief.duration.targetSeconds}s · ${escapeHtml(model.brief.story.pacing)}</p></section>
     ${model.approvalAvailable ? renderApprovalZone(active) : ''}
     <section class="rail-section"><h3>LOCAL MUSIC</h3><p class="rail-copy">${escapeHtml(active.musicPlan.mode)} · ${escapeHtml(active.musicPlan.trackIds.join(', ') || 'No track')}</p></section>
@@ -293,7 +304,7 @@ export async function buildWorkbenchModel(projectRoot) {
 export function renderWorkbenchHtml(model) {
   const modelDigest = computeArtifactDigest({
     state: model.state.integrity.digest, displayed: model.displayedArtifactDigests, approvalAvailable: model.approvalAvailable,
-    lockedBinding: model.lockedBinding ?? null,
+    lockedBinding: model.lockedBinding ?? null, currentViewBinding: model.currentViewBinding ?? null,
   });
   const html = TEMPLATE
     .replace('{{TOKENS}}', tokenStyle())
@@ -302,7 +313,7 @@ export function renderWorkbenchHtml(model) {
     .replace('{{SCRIPT}}', reviewUrl(model.scriptPath))
     .replace('{{CONTENT}}', renderContent(model));
   return model.lockedBinding
-    ? html.replace('<html lang="en">', `<html lang="en" data-state="DIRECTOR_LOCK" data-state-revision="${model.state.revision}" data-state-binding="${model.lockedBinding}">`)
+    ? html.replace('<html lang="en">', `<html lang="en" data-state="${escapeHtml(model.state.state)}" data-state-revision="${model.state.revision}" data-state-binding="${model.lockedBinding}"${model.currentViewBinding ? ` data-current-view-binding="${model.currentViewBinding}"` : ''}>`)
     : html;
 }
 

@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 import { createHash, randomBytes } from 'node:crypto';
-import { open, readFile, rename, unlink } from 'node:fs/promises';
+import { link, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { errorResult, parseCliArguments } from './lib/cli.mjs';
-import { ApprovalError, compileApprovedDesign, compileApprovedLook, renderLockedWorkbench, revalidateDirectorApprovalInputs, validateCommittedDirection, validateDirectorApproval } from './lib/approval.mjs';
+import { ApprovalError, compileApprovedDesign, compileApprovedLook, LOCK_WORKBENCH_SNAPSHOT_PATH, renderLockedWorkbench, revalidateDirectorApprovalInputs, validateCommittedDirection, validateDirectorApproval } from './lib/approval.mjs';
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './lib/contracts.mjs';
 import { buildWorkbenchModel } from './lib/director-workbench.mjs';
 import { projectPath, sha256File } from './lib/media.mjs';
 import { commitDirectorLockState } from './lib/project-state.mjs';
 
-const PATHS = Object.freeze({ journal: 'cache/direction-lock.transaction.json', guard: 'cache/direction-lock.guard.json', design: 'direction/DESIGN_SYSTEM.json', look: 'direction/LOOK_PROFILE.json', state: 'PROJECT_STATE.json', approval: 'direction/DIRECTOR_APPROVAL.json', proposals: 'direction/DIRECTION_PROPOSALS.json', workbench: 'review/director-workbench.html' });
+const PATHS = Object.freeze({ journal: 'cache/direction-lock.transaction.json', guard: 'cache/direction-lock.guard.json', design: 'direction/DESIGN_SYSTEM.json', look: 'direction/LOOK_PROFILE.json', state: 'PROJECT_STATE.json', approval: 'direction/DIRECTOR_APPROVAL.json', proposals: 'direction/DIRECTION_PROPOSALS.json', workbench: 'review/director-workbench.html', snapshot: LOCK_WORKBENCH_SNAPSHOT_PATH });
 const PHASES = new Set(['validated', 'temps-written', 'design-renamed', 'pair-renamed', 'workbench-staged', 'state-intent', 'state-renamed', 'workbench-published', 'committed']);
 
 async function syncDirectory(path) { const handle = await open(dirname(path), 'r'); try { await handle.sync(); } finally { await handle.close(); } }
@@ -113,7 +113,7 @@ async function releaseGuard(projectRoot, owner) {
 }
 
 async function validateJournal(projectRoot, journal) {
-  const keys = ['schemaVersion', 'transactionId', 'owner', 'phase', 'lockedAt', 'selectedCandidate', 'approvalDigest', 'inputDigests', 'designDigest', 'lookDigest', 'priorDesign', 'priorLook', 'priorState', 'designTemp', 'lookTemp', 'workbenchTemp', 'lockedHtml', 'integrity'];
+  const keys = ['schemaVersion', 'transactionId', 'owner', 'phase', 'lockedAt', 'selectedCandidate', 'approvalDigest', 'inputDigests', 'designDigest', 'lookDigest', 'priorDesign', 'priorLook', 'priorState', 'designTemp', 'lookTemp', 'workbenchTemp', 'snapshotPath', 'lockedHtml', 'integrity'];
   const inputKeys = ['approval', 'proposals', 'state', 'editBrief', 'mediaIndex', 'probe', 'segments', 'shots', 'dataOverlays', 'timeline', 'roughCut', 'workbench', 'evidenceFiles', 'bundleFiles', 'musicFiles', 'previewFiles', 'draftDesign', 'draftLook'];
   if (!verifyArtifactIntegrity(journal).valid || !exactKeys(journal, keys) || !validateOwner(journal.owner) || !exactKeys(journal.inputDigests, inputKeys) || Object.values(journal.inputDigests).some((digest) => !/^[0-9a-f]{64}$/.test(digest)) || journal.schemaVersion !== '1.0.0' || !/^[0-9a-f]{32}$/.test(journal.transactionId ?? '') || !PHASES.has(journal.phase) || !Number.isFinite(Date.parse(journal.lockedAt)) || journal.approvalDigest !== journal.inputDigests.approval || !/^[0-9a-f]{64}$/.test(journal.designDigest ?? '') || !/^[0-9a-f]{64}$/.test(journal.lookDigest ?? '') || !journal.selectedCandidate?.wholeDirection || (['validated', 'temps-written', 'design-renamed', 'pair-renamed'].includes(journal.phase) ? journal.lockedHtml !== null : typeof journal.lockedHtml !== 'string')) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'direction lock journal is structurally invalid');
   for (const [value, schemaName] of [[journal.priorDesign, 'design-system'], [journal.priorLook, 'look-profile']]) {
@@ -123,7 +123,7 @@ async function validateJournal(projectRoot, journal) {
   if (journal.priorDesign.integrity.digest !== journal.inputDigests.draftDesign || journal.priorLook.integrity.digest !== journal.inputDigests.draftLook) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'journal prior contracts do not match validated inputs');
   const stateValidation = validateDocument(await loadSchema('project-state'), journal.priorState);
   if (!stateValidation.valid || !verifyArtifactIntegrity(journal.priorState).valid || journal.priorState.state !== 'DIRECTOR_REVIEW_READY' || journal.priorState.integrity.digest !== journal.inputDigests.state) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'journal prior state is invalid');
-  if (journal.designTemp !== `cache/.direction-design.${journal.transactionId}.tmp` || journal.lookTemp !== `cache/.direction-look.${journal.transactionId}.tmp` || journal.workbenchTemp !== `cache/.direction-workbench.${journal.transactionId}.tmp`) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'journal temporary paths are not transaction-owned');
+  if (journal.designTemp !== `cache/.direction-design.${journal.transactionId}.tmp` || journal.lookTemp !== `cache/.direction-look.${journal.transactionId}.tmp` || journal.workbenchTemp !== `cache/.direction-workbench.${journal.transactionId}.tmp` || journal.snapshotPath !== PATHS.snapshot) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'journal temporary and immutable snapshot paths are not transaction-owned');
   return journal;
 }
 async function readJournal(projectRoot) {
@@ -155,6 +155,42 @@ function projectedState(state, journal, pair, approval, workbenchDigest) {
   result.integrity.digest = computeArtifactDigest(result); return result;
 }
 
+async function assertSnapshotAbsent(projectRoot) {
+  try {
+    await readFile(projectPath(projectRoot, PATHS.snapshot));
+    throw new ApprovalError('E_LOCK_SNAPSHOT_EXISTS', 'immutable direction-lock workbench snapshot already exists');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
+async function publishSnapshotAndCurrent(projectRoot, journal) {
+  const tempPath = projectPath(projectRoot, journal.workbenchTemp);
+  const snapshotPath = projectPath(projectRoot, journal.snapshotPath);
+  const currentPath = projectPath(projectRoot, PATHS.workbench);
+  try {
+    await link(tempPath, snapshotPath);
+    await syncDirectory(snapshotPath);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      const [snapshot, current] = await Promise.all([readFile(snapshotPath, 'utf8'), readFile(currentPath, 'utf8')]);
+      if (snapshot !== journal.lockedHtml || current !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes changed after state commit');
+      return;
+    }
+    if (error.code !== 'EEXIST') throw error;
+    const existing = await readFile(snapshotPath, 'utf8');
+    if (existing !== journal.lockedHtml) throw new ApprovalError('E_LOCK_SNAPSHOT_EXISTS', 'immutable direction-lock snapshot bytes differ from the journal');
+  }
+  try {
+    await rename(tempPath, currentPath);
+    await syncDirectory(currentPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    const current = await readFile(currentPath, 'utf8');
+    if (current !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published current workbench differs from the immutable lock snapshot');
+  }
+}
+
 async function stageAndCommit(projectRoot, journal, pair, options) {
   const [state, approval] = await Promise.all([readFile(projectPath(projectRoot, PATHS.state), 'utf8').then(JSON.parse), readFile(projectPath(projectRoot, PATHS.approval), 'utf8').then(JSON.parse)]);
   if (state.state !== 'DIRECTOR_REVIEW_READY' || approval.integrity.digest !== journal.approvalDigest) throw new ApprovalError('E_LOCK_JOURNAL_STALE', 'state or approval changed during lock');
@@ -175,10 +211,11 @@ async function stageAndCommit(projectRoot, journal, pair, options) {
   if (computeArtifactDigest(currentAuthority.selectedCandidate) !== computeArtifactDigest(journal.selectedCandidate)) throw new ApprovalError('E_LOCK_JOURNAL_STALE', 'journal selected candidate no longer matches current approval');
   const digest = await sha256File(projectPath(projectRoot, journal.workbenchTemp)); const committed = projectedState(state, journal, pair, approval, digest);
   const validation = validateDocument(await loadSchema('project-state'), committed); if (!validation.valid) throw new ApprovalError('E_STATE_INVALID', 'DIRECTOR_LOCK state is schema-invalid', { diagnostics: validation.errors });
+  await assertSnapshotAbsent(projectRoot);
   journal.phase = 'state-intent'; await writeJournal(projectRoot, journal);
   await writeAtomic(projectPath(projectRoot, PATHS.state), `${JSON.stringify(committed, null, 2)}\n`, journal.transactionId); inject(options, 'afterStateRenameBeforeJournal');
   journal.phase = 'state-renamed'; await writeJournal(projectRoot, journal); inject(options, 'afterStateCommit');
-  await rename(projectPath(projectRoot, journal.workbenchTemp), projectPath(projectRoot, PATHS.workbench)); await syncDirectory(projectPath(projectRoot, PATHS.workbench)); journal.phase = 'workbench-published'; await writeJournal(projectRoot, journal);
+  await publishSnapshotAndCurrent(projectRoot, journal); journal.phase = 'workbench-published'; await writeJournal(projectRoot, journal);
   const verified = await validateCommittedDirection(projectRoot); return { state: verified.state, workbenchDigest: verified.workbenchDigest };
 }
 
@@ -210,13 +247,13 @@ async function recover(projectRoot, options) {
     const expected = projectedState(journal.priorState, journal, pair, approval, workbenchDigest);
     if (state.integrity?.digest !== expected.integrity.digest) throw new ApprovalError('E_LOCK_JOURNAL_STALE', 'state-intent does not match the journaled DIRECTOR_LOCK state');
     const tempPath = projectPath(projectRoot, journal.workbenchTemp);
-    try {
-      if (await readFile(tempPath, 'utf8') !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged workbench bytes changed');
-      await rename(tempPath, projectPath(projectRoot, PATHS.workbench)); await syncDirectory(projectPath(projectRoot, PATHS.workbench));
-    } catch (error) {
-      if (error.code === 'ENOENT') await writeAtomic(projectPath(projectRoot, PATHS.workbench), journal.lockedHtml, journal.transactionId);
-      else throw error;
+    try { if (await readFile(tempPath, 'utf8') !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'staged workbench bytes changed'); }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const [snapshot, current] = await Promise.all([readFile(projectPath(projectRoot, PATHS.snapshot), 'utf8'), readFile(projectPath(projectRoot, PATHS.workbench), 'utf8')]);
+      if (snapshot !== journal.lockedHtml || current !== journal.lockedHtml) throw new ApprovalError('E_LOCK_JOURNAL_INVALID', 'published workbench bytes changed after state commit');
     }
+    await publishSnapshotAndCurrent(projectRoot, journal);
     journal.phase = 'workbench-published'; await writeJournal(projectRoot, journal);
   }
   const committed = await validateCommittedDirection(projectRoot); await unlink(projectPath(projectRoot, PATHS.journal)); await syncDirectory(projectPath(projectRoot, PATHS.journal));
@@ -234,7 +271,7 @@ export async function lockDirection(projectRoot, options = {}) {
     const validated = await validateDirectorApproval(projectRoot); const lockedAt = (options.now ?? (() => new Date().toISOString()))();
     if (!Number.isFinite(Date.parse(lockedAt))) throw new ApprovalError('E_LOCK_TIME', 'lock timestamp must be ISO-8601');
     const design = compileApprovedDesign(validated.draftDesign, validated.selectedCandidate, validated.approval, lockedAt); const look = compileApprovedLook(validated.draftLook, validated.selectedCandidate, validated.approval, lockedAt);
-    const transactionId = randomBytes(16).toString('hex'); const journal = { schemaVersion: '1.0.0', transactionId, owner: guard, phase: 'validated', lockedAt, selectedCandidate: structuredClone(validated.selectedCandidate), approvalDigest: validated.approval.integrity.digest, inputDigests: validated.inputDigests, designDigest: design.integrity.digest, lookDigest: look.integrity.digest, priorDesign: validated.draftDesign, priorLook: validated.draftLook, priorState: validated.projectState, designTemp: `cache/.direction-design.${transactionId}.tmp`, lookTemp: `cache/.direction-look.${transactionId}.tmp`, workbenchTemp: `cache/.direction-workbench.${transactionId}.tmp`, lockedHtml: null, integrity: { digest: null, upstream: {} } };
+    const transactionId = randomBytes(16).toString('hex'); const journal = { schemaVersion: '1.0.0', transactionId, owner: guard, phase: 'validated', lockedAt, selectedCandidate: structuredClone(validated.selectedCandidate), approvalDigest: validated.approval.integrity.digest, inputDigests: validated.inputDigests, designDigest: design.integrity.digest, lookDigest: look.integrity.digest, priorDesign: validated.draftDesign, priorLook: validated.draftLook, priorState: validated.projectState, designTemp: `cache/.direction-design.${transactionId}.tmp`, lookTemp: `cache/.direction-look.${transactionId}.tmp`, workbenchTemp: `cache/.direction-workbench.${transactionId}.tmp`, snapshotPath: PATHS.snapshot, lockedHtml: null, integrity: { digest: null, upstream: {} } };
     let ownsJournal = false;
     try {
       await writeJournal(projectRoot, journal, true); ownsJournal = true;
