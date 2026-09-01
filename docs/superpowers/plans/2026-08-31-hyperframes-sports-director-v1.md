@@ -23,8 +23,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 3 — versioned contracts and lifecycle | Complete | `3a29147f7f7324ccfc606d932cfcf3939c05ebb2` | Contract, lifecycle, integrity, and portability primitives are accepted; do not recreate. |
 | 4 — declarative sport/device/delivery profiles | Complete | `46a65484f9b61d2bac40a70e624b7734dae065ea` | Profile contracts, maturity boundaries, and deterministic policy composition are accepted; do not recreate. |
 | 5 — project creation, state transitions, and capabilities | Complete | `167998952e3a18071d32482514420c4cdea6f0ef` | Project initialization, auditable gates, invalidation policy, and capability checks are accepted; do not recreate. |
-| 6 — mixed-media scan, probe, and proxies | Next | — | Start from current remote `main`; no Task 6 implementation has been accepted remotely. |
-| 7–19 | Pending | — | Execute in order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 6 — mixed-media scan, probe, and proxies | Complete | `11c67f4268405799fc979b775a40eda58e557c7d` | Immutable ingest, normalized probe, local locator registry, and analysis proxies are accepted; do not recreate. |
+| 7 — segmentation and shot-understanding evidence | Next | — | Start from current remote `main`; no Task 7 implementation has been accepted remotely. |
+| 8–19 | Pending | — | Execute in order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
