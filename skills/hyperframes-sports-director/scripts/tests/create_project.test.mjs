@@ -535,6 +535,34 @@ test('invalidation closure produces contract-valid auditable rollback and frozen
   assert.equal(timelineRollback.integrity.digest, computeArtifactDigest(timelineRollback));
   assert.deepEqual(projectState, snapshot, 'bounded downstream correction is pure');
 
+  const forgeRollback = (source, { rollbackTarget = source.invalidations.at(-1).rollbackTarget, invalidatedRoles = source.invalidations.at(-1).invalidatedRoles } = {}) => {
+    const forged = structuredClone(source);
+    const invalidation = forged.invalidations.at(-1);
+    invalidation.rollbackTarget = rollbackTarget;
+    invalidation.invalidatedRoles = invalidatedRoles;
+    const { evidenceDigest: ignoredDigest, ...digestInput } = invalidation;
+    invalidation.evidenceDigest = computeArtifactDigest(digestInput);
+    const transition = forged.transitions.at(-1);
+    transition.rollbackTarget = rollbackTarget;
+    const evidenceRole = Object.keys(transition.evidenceDigests)[0];
+    transition.evidenceDigests[evidenceRole] = invalidation.evidenceDigest;
+    const evidence = forged.gateEvidence.at(-1);
+    evidence.digest = invalidation.evidenceDigest;
+    if (invalidation.disposition === 'rollback') {
+      transition.to = rollbackTarget;
+      forged.state = rollbackTarget;
+      evidence.gate = rollbackTarget;
+    }
+    forged.integrity.digest = computeArtifactDigest(forged);
+    return forged;
+  };
+  for (const rollbackTarget of ['MOTION_COMPOSITION', 'STYLE_ANCHOR']) {
+    const forgedTarget = forgeRollback(timelineRollback, { rollbackTarget });
+    assert.equal(validateDocument(await loadSchema('project-state'), forgedTarget).valid, false, `TIMELINE cannot forge ${rollbackTarget} instead of exact ASSET_PRODUCTION rollback`);
+  }
+  const unknownRoleTarget = forgeRollback(timelineRollback, { invalidatedRoles: ['UNKNOWN_ROLE'] });
+  assert.equal(validateDocument(await loadSchema('project-state'), unknownRoleTarget).valid, false, 'unknown invalidation roles cannot justify a rollback target');
+
   const frozenBoundary = rollbackStateForInvalidation(
     projectState,
     ['DESIGN_SYSTEM', 'ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'],
@@ -549,6 +577,8 @@ test('invalidation closure produces contract-valid auditable rollback and frozen
   const falseApprovalBoundary = structuredClone(frozenBoundary);
   falseApprovalBoundary.invalidations.at(-1).invalidatedRoles = ['ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'];
   assert.equal(validateDocument(await loadSchema('project-state'), falseApprovalBoundary).valid, false);
+  const forgedFrozenTarget = forgeRollback(frozenBoundary, { rollbackTarget: 'ROUGH_CUT' });
+  assert.equal(validateDocument(await loadSchema('project-state'), forgedFrozenTarget).valid, false, 'frozen invalidation binds the exact policy-derived pre-lock target');
   const forgedInvalidationDigest = structuredClone(timelineRollback);
   forgedInvalidationDigest.invalidations.at(-1).evidenceDigest = 'f'.repeat(64);
   forgedInvalidationDigest.transitions.at(-1).evidenceDigests.INVALIDATION = 'f'.repeat(64);

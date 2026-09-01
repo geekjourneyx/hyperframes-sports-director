@@ -77,4 +77,8 @@ export function validateTransition(current, next, evidence) {
   return validateGateEvidence(next, evidence?.records, evidence?.currentArtifacts);
 }
 
+export function hasGateRequirements(state) {
+  return Object.hasOwn(GATE_REQUIREMENTS, state);
+}
+
 export { MAIN_STATES };

@@ -459,6 +459,22 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
     record.invalidatedAt = '2026-09-01T01:00:00.000Z';
   }
   assertInvalid(schemas['project-state'], invalidCurrentGate, 'the current gate cannot rely on invalidated evidence');
+  for (const [state, role] of [
+    ['STYLE_ANCHOR', 'DESIGN_SYSTEM'],
+    ['ASSET_PRODUCTION', 'REPRESENTATIVE_COMBINATION'],
+    ['DELIVERED', 'HARD_GATES'],
+  ]) {
+    const partiallyInvalidated = projectStateAt(projectState, state);
+    const record = partiallyInvalidated.gateEvidence.find((entry) => entry.gate === state && entry.role === role);
+    record.validity = 'invalidated';
+    record.invalidatedAt = '2026-09-01T01:00:00.000Z';
+    assertInvalid(schemas['project-state'], partiallyInvalidated, `${state} requires every exact gate record to remain current-valid`);
+  }
+  const unauditedHistoricalInvalidation = clone(validStateHistory);
+  const historicalRecord = unauditedHistoricalInvalidation.gateEvidence.find(({ gate, role }) => gate === 'STYLE_ANCHOR' && role === 'DESIGN_SYSTEM');
+  historicalRecord.validity = 'invalidated';
+  historicalRecord.invalidatedAt = '2026-09-01T01:00:00.000Z';
+  assertInvalid(schemas['project-state'], unauditedHistoricalInvalidation, 'historical special-gate invalidation requires a later auditable rollback or BLOCKED transition');
   const inconsistentValidity = clone(validStateHistory);
   inconsistentValidity.gateEvidence[0].invalidatedAt = '2026-09-01T01:00:00.000Z';
   assertInvalid(schemas['project-state'], inconsistentValidity, 'valid evidence cannot carry an invalidation timestamp');

@@ -1,22 +1,5 @@
 import { computeArtifactDigest } from './contracts.mjs';
-
-const STATE_ORDER = [
-  'INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT',
-  'DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION',
-  'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED',
-];
-const ROLLBACK_STATE = {
-  MEDIA_INDEX: 'CAPABILITY_CHECK',
-  PROBE: 'SCAN',
-  ACTIVITY: 'SCAN',
-  DATA_OVERLAYS: 'ANALYZE',
-  TIMELINE: 'ASSET_PRODUCTION',
-  ASSET_MANIFEST: 'STYLE_ANCHOR',
-  MOTION_MAP: 'ASSET_PRODUCTION',
-  FINAL_RENDER: 'MOTION_COMPOSITION',
-  REVIEW: 'FINAL_RENDER',
-};
-const FROZEN_BOUNDARY_ROLES = new Set(['DESIGN_SYSTEM', 'LOOK_PROFILE']);
+import { deriveInvalidationPolicy } from './invalidation-policy.mjs';
 
 export function computeInvalidationClosure(changedRoles, dependencyGraph) {
   if (!Array.isArray(changedRoles) || changedRoles.some((role) => typeof role !== 'string')) {
@@ -51,18 +34,10 @@ export function rollbackStateForInvalidation(projectState, invalidatedRoles, con
     throw new TypeError('invalidation context requires timestamp and producerCommand');
   }
   const result = structuredClone(projectState);
-  const frozenBoundary = invalidatedRoles.some((role) => FROZEN_BOUNDARY_ROLES.has(role));
-  const currentIndex = STATE_ORDER.indexOf(projectState.state);
-  const candidates = invalidatedRoles
-    .map((role) => ROLLBACK_STATE[role])
-    .filter(Boolean)
-    .filter((state) => STATE_ORDER.indexOf(state) < currentIndex);
-  if (frozenBoundary) candidates.push('DIRECTOR_REVIEW_READY');
-  if (candidates.length === 0) return result;
-  candidates.sort((left, right) => STATE_ORDER.indexOf(left) - STATE_ORDER.indexOf(right));
-  const rollbackTarget = candidates[0];
-  const disposition = frozenBoundary ? 'blocked' : 'rollback';
-  const nextState = frozenBoundary ? 'BLOCKED' : rollbackTarget;
+  const policy = deriveInvalidationPolicy(invalidatedRoles, projectState.state);
+  if (policy === null) return result;
+  const { rollbackTarget, disposition, nextState } = policy;
+  const frozenBoundary = disposition === 'blocked';
   const revision = (projectState.revision ?? 0) + 1;
   const invalidation = {
     at: context.timestamp,
