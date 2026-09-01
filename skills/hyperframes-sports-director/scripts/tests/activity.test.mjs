@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import {
   trimPrivateEndpoints,
   weightedAverage,
 } from '../lib/activity.mjs';
+import { analyzeActivity } from '../analyze_activity.mjs';
 import { validateArtifact } from '../lib/contracts.mjs';
 
 const SKILL = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -249,6 +250,53 @@ test('analyze_activity writes only integrity-valid portable artifacts and reject
   for (const path of ['analysis/ACTIVITY.json', 'analysis/SYNC_MAP.json', 'direction/DATA_OVERLAYS.json']) {
     await assert.rejects(access(join(badProject, path)));
   }
+});
+
+test('analyze_activity rolls back all three artifacts when the third commit rename fails', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hyperframes-activity-transaction-'));
+  const project = join(scratch, 'project');
+  const input = join(scratch, 'activity.json');
+  const paths = ['analysis/ACTIVITY.json', 'analysis/SYNC_MAP.json', 'direction/DATA_OVERLAYS.json'];
+  await mkdir(join(project, 'analysis'), { recursive: true });
+  await mkdir(join(project, 'direction'), { recursive: true });
+  await writeFile(input, JSON.stringify(cycling()));
+  for (const path of paths) await writeFile(join(project, path), `old:${path}\n`);
+
+  let committedRenames = 0;
+  let exitCode = 0;
+  try {
+    await analyzeActivity({ input, project, trimStartMeters: 300, trimEndMeters: 300 }, {
+      fileOps: {
+        rename: async (source, destination) => {
+          if (source.includes('.tmp-') && (committedRenames += 1) === 3) {
+            const error = new Error('deterministic third-commit failure');
+            error.code = 'EIO';
+            throw error;
+          }
+          return rename(source, destination);
+        },
+      },
+    });
+  } catch (error) {
+    exitCode = error.code === 'E_ACTIVITY_WRITE' ? 1 : 2;
+  }
+  assert.equal(exitCode, 1, 'transaction failure must produce a non-zero analyzer result');
+  for (const path of paths) assert.equal(await readFile(join(project, path), 'utf8'), `old:${path}\n`);
+  assert.deepEqual((await readdir(join(project, 'analysis'))).sort(), ['ACTIVITY.json', 'SYNC_MAP.json']);
+  assert.deepEqual(await readdir(join(project, 'direction')), ['DATA_OVERLAYS.json']);
+
+  const unsafeProject = join(scratch, 'unsafe-project');
+  await mkdir(join(unsafeProject, 'analysis'), { recursive: true });
+  await mkdir(join(unsafeProject, 'direction', 'DATA_OVERLAYS.json'), { recursive: true });
+  await writeFile(join(unsafeProject, 'analysis', 'ACTIVITY.json'), 'old-activity\n');
+  await writeFile(join(unsafeProject, 'analysis', 'SYNC_MAP.json'), 'old-sync\n');
+  await assert.rejects(
+    analyzeActivity({ input, project: unsafeProject }),
+    (error) => error.code === 'E_ACTIVITY_OUTPUT' && !error.message.includes(unsafeProject),
+  );
+  assert.equal(await readFile(join(unsafeProject, 'analysis', 'ACTIVITY.json'), 'utf8'), 'old-activity\n');
+  assert.equal(await readFile(join(unsafeProject, 'analysis', 'SYNC_MAP.json'), 'utf8'), 'old-sync\n');
+  assert.deepEqual(await readdir(join(unsafeProject, 'direction')), ['DATA_OVERLAYS.json']);
 });
 
 test('analyze_activity accepts real FIT and KML contracts and the no-input branch', async () => {

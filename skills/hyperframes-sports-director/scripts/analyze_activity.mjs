@@ -6,8 +6,8 @@
  * the exact revision recorded in UPSTREAM.lock.json; code is implemented here.
  */
 import { randomUUID } from 'node:crypto';
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { dirname, extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { buildDataOverlayAllowList, buildSyncMap, normalizeActivity, trimPrivateEndpoints } from './lib/activity.mjs';
@@ -185,23 +185,72 @@ async function ensureValid(schemaName, document) {
   if (!result.valid) throw new AnalyzerError('E_ACTIVITY_CONTRACT', `generated ${schemaName} artifact is invalid`);
 }
 
-async function writeAtomically(entries) {
-  const suffix = `${process.pid}-${randomUUID()}`;
-  const staged = [];
+async function pathState(path, fileOps) {
   try {
-    for (const [path, value] of entries) {
-      const temporary = `${path}.tmp-${suffix}`;
-      await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-      staged.push([temporary, path]);
-    }
-    for (const [temporary, path] of staged) await rename(temporary, path);
+    return await fileOps.lstat(path);
   } catch (error) {
-    await Promise.all(staged.map(([temporary]) => unlink(temporary).catch(() => {})));
+    if (error?.code === 'ENOENT') return null;
     throw error;
   }
 }
 
-export async function analyzeActivity(options) {
+async function writeAtomically(entries, overrides = {}) {
+  const fileOps = { lstat, rename, unlink, writeFile, ...overrides };
+  const suffix = `${process.pid}-${randomUUID()}`;
+  const staged = entries.map(([target, value]) => ({
+    target,
+    value,
+    temporary: `${target}.tmp-${suffix}`,
+    backup: `${target}.backup-${suffix}`,
+    existed: false,
+    backedUp: false,
+    committed: false,
+  }));
+  try {
+    for (const entry of staged) {
+      const parent = await pathState(dirname(entry.target), fileOps);
+      const target = await pathState(entry.target, fileOps);
+      if (!parent?.isDirectory() || parent.isSymbolicLink()
+        || (target !== null && (!target.isFile() || target.isSymbolicLink()))
+        || await pathState(entry.temporary, fileOps) !== null
+        || await pathState(entry.backup, fileOps) !== null) {
+        throw new AnalyzerError('E_ACTIVITY_OUTPUT', 'activity artifact targets must be replaceable regular files in safe project directories');
+      }
+      entry.existed = target !== null;
+    }
+    for (const entry of staged) {
+      await fileOps.writeFile(entry.temporary, `${JSON.stringify(entry.value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    }
+    for (const entry of staged) {
+      if (!entry.existed) continue;
+      await fileOps.rename(entry.target, entry.backup);
+      entry.backedUp = true;
+    }
+    for (const entry of staged) {
+      await fileOps.rename(entry.temporary, entry.target);
+      entry.committed = true;
+    }
+  } catch (error) {
+    await Promise.all(staged.filter(({ committed }) => committed).map(({ target }) => fileOps.unlink(target).catch(() => {})));
+    let rollbackFailed = false;
+    for (const entry of staged.toReversed()) {
+      if (!entry.backedUp) continue;
+      try {
+        await fileOps.rename(entry.backup, entry.target);
+        entry.backedUp = false;
+      } catch {
+        rollbackFailed = true;
+      }
+    }
+    await Promise.all(staged.map(({ temporary }) => fileOps.unlink(temporary).catch(() => {})));
+    if (rollbackFailed) throw new AnalyzerError('E_ACTIVITY_ROLLBACK', 'activity artifact rollback failed; recovery backup retained');
+    if (error instanceof AnalyzerError) throw error;
+    throw new AnalyzerError('E_ACTIVITY_WRITE', 'activity artifacts were not committed');
+  }
+  await Promise.all(staged.filter(({ backedUp }) => backedUp).map(({ backup }) => fileOps.unlink(backup)));
+}
+
+export async function analyzeActivity(options, dependencies = {}) {
   if (!options?.project) throw new AnalyzerError('E_USAGE', 'project is required');
   const activities = options.input ? await readActivities(options.input) : [];
   const route = activities.find((activity) => Array.isArray(activity.route) && activity.route.length > 1)?.route;
@@ -236,7 +285,7 @@ export async function analyzeActivity(options) {
     [join(options.project, 'analysis', 'ACTIVITY.json'), activity],
     [join(options.project, 'analysis', 'SYNC_MAP.json'), syncMap],
     [join(options.project, 'direction', 'DATA_OVERLAYS.json'), overlays],
-  ]);
+  ], dependencies.fileOps);
   return { ok: true, status: activity.status, trimmedRouteId: activity.route.trimmedRouteId };
 }
 
