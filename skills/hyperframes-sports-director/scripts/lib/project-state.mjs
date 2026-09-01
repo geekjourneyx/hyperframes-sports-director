@@ -81,4 +81,79 @@ export function hasGateRequirements(state) {
   return Object.hasOwn(GATE_REQUIREMENTS, state);
 }
 
+function evidenceRecord(gate, role, revision, digest, timestamp, producerCommand, qualifier) {
+  return {
+    gate, role, revision, digest, timestamp, producerCommand,
+    qualifiers: [qualifier], validity: 'valid', invalidatedAt: null,
+  };
+}
+
+export function commitDirectorLockState(projectState, artifacts, context) {
+  if (projectState?.state !== 'DIRECTOR_REVIEW_READY') {
+    throw new ProjectStateError('E_APPROVAL_CONSUMED', 'DIRECTOR_LOCK may consume the current approval exactly once');
+  }
+  if (!context || !Number.isFinite(Date.parse(context.timestamp)) || typeof context.producerCommand !== 'string' || !context.producerCommand) {
+    throw new ProjectStateError('E_EVIDENCE_INVALID', 'DIRECTOR_LOCK requires a timestamp and producer command');
+  }
+  const required = ['DESIGN_SYSTEM', 'LOOK_PROFILE', 'DIRECTOR_APPROVAL', 'WORKBENCH'];
+  for (const role of required) {
+    if (!Number.isInteger(artifacts?.[role]?.revision) || artifacts[role].revision < 1 || !DIGEST.test(artifacts[role].digest ?? '')) {
+      throw new ProjectStateError('E_EVIDENCE_INVALID', `DIRECTOR_LOCK requires current ${role} revision and digest`);
+    }
+  }
+  const result = structuredClone(projectState);
+  const revision = projectState.revision + 1;
+  const qualifiers = { DESIGN_SYSTEM: 'frozen', LOOK_PROFILE: 'frozen', DIRECTOR_APPROVAL: 'consumed', WORKBENCH: 'state-bound' };
+  const records = required.map((role) => evidenceRecord(
+    'DIRECTOR_LOCK', role, artifacts[role].revision, artifacts[role].digest,
+    context.timestamp, context.producerCommand, qualifiers[role],
+  ));
+  result.previousState = projectState.state;
+  result.state = 'DIRECTOR_LOCK';
+  result.stateEnteredAt = context.timestamp;
+  result.revision = revision;
+  result.gateEvidence.push(...records);
+  result.transitions.push({
+    from: projectState.state, to: 'DIRECTOR_LOCK', at: context.timestamp,
+    evidenceDigests: Object.fromEntries(records.map(({ role, digest }) => [role, digest])),
+    evidenceRevisions: Object.fromEntries(records.map(({ role, revision: artifactRevision }) => [role, artifactRevision])),
+  });
+  result.integrity.digest = null;
+  return result;
+}
+
+export function blockCurrentRun(projectState, boundary, context) {
+  if (!projectState || TERMINAL_STATES.has(projectState.state)) {
+    throw new ProjectStateError('E_STATE_TRANSITION', 'a terminal run cannot be blocked again');
+  }
+  if (!context || !Number.isFinite(Date.parse(context.timestamp)) || typeof context.producerCommand !== 'string' || !context.producerCommand) {
+    throw new ProjectStateError('E_EVIDENCE_INVALID', 'BLOCKED requires a timestamp and producer command');
+  }
+  const rollbackTarget = boundary?.rollbackTarget ?? 'DIRECTOR_REVIEW_READY';
+  const audit = {
+    code: boundary?.code ?? 'approval_boundary_crossed',
+    repairClass: boundary?.repairClass ?? 'unknown',
+    reason: boundary?.reason ?? 'approved boundary crossed',
+    rollbackTarget,
+  };
+  const digest = DIGEST.test(boundary?.digest ?? '') ? boundary.digest
+    : DIGEST.test(boundary?.evidenceDigest ?? '') ? boundary.evidenceDigest : null;
+  if (!DIGEST.test(digest ?? '')) throw new ProjectStateError('E_EVIDENCE_INVALID', 'BLOCKED requires a canonical boundary digest');
+  const result = structuredClone(projectState);
+  const revision = projectState.revision + 1;
+  const record = evidenceRecord('BLOCKED', 'APPROVAL_BOUNDARY_CROSSED', revision, digest, context.timestamp, context.producerCommand, audit.code);
+  result.previousState = projectState.state;
+  result.state = 'BLOCKED';
+  result.stateEnteredAt = context.timestamp;
+  result.revision = revision;
+  result.gateEvidence.push(record);
+  result.transitions.push({
+    from: projectState.state, to: 'BLOCKED', at: context.timestamp, rollbackTarget,
+    evidenceDigests: { APPROVAL_BOUNDARY_CROSSED: digest },
+    evidenceRevisions: { APPROVAL_BOUNDARY_CROSSED: revision },
+  });
+  result.integrity.digest = null;
+  return result;
+}
+
 export { MAIN_STATES };
