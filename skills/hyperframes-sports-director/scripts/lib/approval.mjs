@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
 import { loadDirectionSources, validateDirectionProposals, validateProposalPreviewArtifacts } from './direction-proposals.mjs';
+import { buildWorkbenchModel, renderWorkbenchHtml } from './director-workbench.mjs';
+import { assertNoPendingRepairTransaction } from './invalidation.mjs';
 import { projectPath, sha256File } from './media.mjs';
 import { validateGateEvidence } from './project-state.mjs';
 
@@ -185,13 +187,29 @@ export function lockedWorkbenchBinding(state, selectedCandidate) {
   const transition = state.transitions?.findLast(({ to }) => to === 'DIRECTOR_LOCK');
   return computeArtifactDigest({ stateRevision: transition?.evidenceRevisions?.WORKBENCH, at: transition?.at, selectedCandidateId: selectedCandidate.candidateId, selectedCandidateDigest: computeArtifactDigest(selectedCandidate), evidenceDigests: Object.fromEntries(Object.entries(transition?.evidenceDigests ?? {}).filter(([role]) => role !== 'WORKBENCH').sort()), evidenceRevisions: Object.fromEntries(Object.entries(transition?.evidenceRevisions ?? {}).filter(([role]) => role !== 'WORKBENCH').sort()) });
 }
-export function renderLockedWorkbench(state, selectedCandidate) {
-  const transition = state.transitions?.findLast(({ to }) => to === 'DIRECTOR_LOCK'); const lockRevision = transition?.evidenceRevisions?.WORKBENCH;
-  const binding = lockedWorkbenchBinding(state, selectedCandidate); const title = String(selectedCandidate.title).replace(/[&<>"']/g, '');
-  return `<!doctype html>\n<html lang="en" data-state="DIRECTOR_LOCK" data-state-revision="${lockRevision}" data-state-binding="${binding}"><head><meta charset="utf-8"><title>Locked Director Direction</title></head><body><main><p>DIRECTOR LOCK · READ-ONLY</p><h1>${title}</h1><p>${selectedCandidate.candidateId}</p></main></body></html>\n`;
+function canonicalWorkbenchState(state) {
+  const result = structuredClone(state);
+  const transition = result.transitions?.findLast(({ to }) => to === 'DIRECTOR_LOCK');
+  if (transition?.evidenceDigests?.WORKBENCH) transition.evidenceDigests.WORKBENCH = '0'.repeat(64);
+  const record = result.gateEvidence?.findLast(({ gate, role }) => gate === 'DIRECTOR_LOCK' && role === 'WORKBENCH');
+  if (record) record.digest = '0'.repeat(64);
+  result.integrity.digest = null;
+  result.integrity.digest = computeArtifactDigest(result);
+  return result;
+}
+export function renderLockedWorkbench(state, selectedCandidate, workbenchModel) {
+  if (!workbenchModel?.proposals?.candidates) fail('E_WORKBENCH_REBUILD', 'locked workbench requires the accepted evidence model');
+  const model = structuredClone(workbenchModel);
+  model.state = canonicalWorkbenchState(state);
+  model.proposals.candidates = [structuredClone(selectedCandidate)];
+  model.approvalAvailable = false;
+  model.lockedBinding = lockedWorkbenchBinding(state, selectedCandidate);
+  return renderWorkbenchHtml(model);
 }
 
 export async function validateCommittedDirection(projectRoot) {
+  try { await assertNoPendingRepairTransaction(projectRoot); }
+  catch (error) { fail(error.code ?? 'E_REPAIR_PENDING', error.message, { cause: error }); }
   const [design, look, state, approval, proposals, html] = await Promise.all([
     readContract(projectRoot, 'direction/DESIGN_SYSTEM.json', 'design-system', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/LOOK_PROFILE.json', 'look-profile', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'PROJECT_STATE.json', 'project-state', 'E_DIRECTION_UNCOMMITTED'), readContract(projectRoot, 'direction/DIRECTOR_APPROVAL.json', 'director-approval', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/DIRECTION_PROPOSALS.json', 'direction-proposals', 'E_DIRECTION_PAIR_INVALID'), readFile(projectPath(projectRoot, 'review/director-workbench.html'), 'utf8'),
   ]);
@@ -211,7 +229,8 @@ export async function validateCommittedDirection(projectRoot) {
   try { validateGateEvidence('DIRECTOR_LOCK', records, { DESIGN_SYSTEM: { revision: design.revision, digest: design.integrity.digest }, LOOK_PROFILE: { revision: look.revision, digest: look.integrity.digest }, DIRECTOR_APPROVAL: { revision: approval.revision, digest: approval.integrity.digest }, WORKBENCH: { revision: lockRevision, digest: workbenchDigest } }, { timestamp: transition.at }); }
   catch (error) { fail('E_DIRECTION_UNCOMMITTED', error.message, { cause: error }); }
   const evidence = transition.evidenceDigests;
-  if (transition.evidenceRevisions.DESIGN_SYSTEM !== design.revision || transition.evidenceRevisions.LOOK_PROFILE !== look.revision || transition.evidenceRevisions.DIRECTOR_APPROVAL !== approval.revision || evidence.DESIGN_SYSTEM !== design.integrity.digest || evidence.LOOK_PROFILE !== look.integrity.digest || evidence.DIRECTOR_APPROVAL !== approval.integrity.digest || design.approvalDigest !== approval.integrity.digest || look.approvalDigest !== approval.integrity.digest || evidence.WORKBENCH !== workbenchDigest || html !== renderLockedWorkbench(state, selected)) fail('E_DIRECTION_UNCOMMITTED', 'committed direction evidence or canonical workbench is stale');
+  const workbenchModel = await buildWorkbenchModel(projectRoot);
+  if (transition.evidenceRevisions.DESIGN_SYSTEM !== design.revision || transition.evidenceRevisions.LOOK_PROFILE !== look.revision || transition.evidenceRevisions.DIRECTOR_APPROVAL !== approval.revision || evidence.DESIGN_SYSTEM !== design.integrity.digest || evidence.LOOK_PROFILE !== look.integrity.digest || evidence.DIRECTOR_APPROVAL !== approval.integrity.digest || design.approvalDigest !== approval.integrity.digest || look.approvalDigest !== approval.integrity.digest || evidence.WORKBENCH !== workbenchDigest || html !== renderLockedWorkbench(state, selected, workbenchModel)) fail('E_DIRECTION_UNCOMMITTED', 'committed direction evidence or canonical workbench is stale');
   return { design, look, state, approval, workbenchDigest };
 }
 

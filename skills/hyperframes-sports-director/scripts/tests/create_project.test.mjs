@@ -116,6 +116,7 @@ function evidenceFor(next) {
       evidenceRecord(next, 'DIRECTOR_APPROVAL', ['consumed']),
       evidenceRecord(next, 'WORKBENCH', ['state-bound']),
     ];
+    records.forEach((record) => { record.producerCommand = 'lock_direction.mjs'; });
   } else if (next === 'STYLE_ANCHOR') {
     records = [
       evidenceRecord(next, 'DESIGN_SYSTEM', ['frozen']),

@@ -111,7 +111,7 @@ function projectStateAt(base, state) {
       revision: index + 1,
       digest: `${index + 1}${roleIndex + 1}`.padStart(64, '0'),
       timestamp: at,
-      producerCommand: `test-gate --state ${to}`,
+      producerCommand: to === 'DIRECTOR_LOCK' ? 'lock_direction.mjs' : `test-gate --state ${to}`,
       qualifiers: [qualifier],
       validity: 'valid',
       invalidatedAt: null,

@@ -376,8 +376,9 @@ async function loadSources(projectRoot) {
     readVerified(projectRoot, 'direction/DATA_OVERLAYS.json', 'data-overlays'),
     readVerified(projectRoot, 'PROJECT_STATE.json', 'project-state'),
   ]);
-  if (!['ROUGH_CUT', 'DIRECTOR_REVIEW_READY'].includes(projectState.state)) {
-    throw new DirectionProposalError('E_PROPOSAL_STATE', 'direction proposals require ROUGH_CUT or DIRECTOR_REVIEW_READY state');
+  const reviewSourceStates = ['ROUGH_CUT', 'DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED'];
+  if (!reviewSourceStates.includes(projectState.state)) {
+    throw new DirectionProposalError('E_PROPOSAL_STATE', 'direction proposal evidence is unavailable in the current state');
   }
   if (shots.status !== 'available' || shots.shots.length === 0 || timeline.status !== 'available' || timeline.phase !== 'rough') {
     throw new DirectionProposalError('E_SOURCE_INCOMPLETE', 'Agent-validated shots and an available rough timeline are required');

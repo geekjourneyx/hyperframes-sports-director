@@ -177,7 +177,7 @@ function stamp(value) {
 
 const REPAIR_JOURNAL = 'cache/repair.transaction.json';
 const REPAIR_GUARD = 'cache/repair.guard.json';
-const REPAIR_PHASES = new Set(['prepared', 'history-renamed', 'pair-renamed']);
+const REPAIR_PHASES = new Set(['prepared', 'history-renamed', 'state-renamed', 'pair-renamed']);
 
 async function writeJsonExclusive(path, value) {
   let handle;
@@ -199,20 +199,55 @@ function validateRepairGuard(value) {
     || !stableKeys(Object.keys(value ?? {}).sort(), ['schemaVersion', 'owner', 'integrity'])
     || !stableKeys(Object.keys(value?.owner ?? {}).sort(), ['active', 'pid', 'processStartId', 'token'])
     || value.schemaVersion !== '1.0.0' || value.owner.active !== true
-    || !/^[0-9a-f]{64}$/.test(value.owner.token ?? '') || !Number.isInteger(value.owner.pid)
+    || !/^[0-9a-f]{64}$/.test(value.owner.token ?? '') || !Number.isInteger(value.owner.pid) || value.owner.pid <= 0
     || typeof value.owner.processStartId !== 'string' || value.owner.processStartId.length === 0) {
     const error = new Error('repair guard is structurally invalid'); error.code = 'E_REPAIR_GUARD_INVALID'; throw error;
   }
   return value;
 }
 
-async function acquireRepairGuard(projectRoot) {
+async function acquireRepairTakeoverMutex(path, owner, hooks = {}) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try { await writeJsonExclusive(path, stamp({ schemaVersion: '1.0.0', owner, integrity: { digest: null, upstream: {} } })); return owner; }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let existing;
+      try { existing = validateRepairGuard(JSON.parse(await readFile(path, 'utf8'))); }
+      catch { const busy = new Error('repair takeover mutex is unreadable'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+      const liveIdentity = await processStartIdentity(existing.owner.pid);
+      if (liveIdentity !== null && liveIdentity === existing.owner.processStartId) { const busy = new Error('another repair takeover is active'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+      if (hooks.beforeTakeoverMutexClaim) await hooks.beforeTakeoverMutexClaim();
+      let current;
+      try { current = validateRepairGuard(JSON.parse(await readFile(path, 'utf8'))); }
+      catch { const busy = new Error('repair takeover mutex changed'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+      if (current.integrity.digest !== existing.integrity.digest) { const busy = new Error('repair takeover mutex changed'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+      const claim = `${path}.claim.${owner.token}`;
+      await rename(path, claim); await syncDirectory(path);
+      const claimed = validateRepairGuard(JSON.parse(await readFile(claim, 'utf8')));
+      if (claimed.integrity.digest !== existing.integrity.digest) { const busy = new Error('repair takeover mutex claim changed'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+      await unlink(claim); await syncDirectory(claim);
+    }
+  }
+  const busy = new Error('repair takeover mutex recovery lost a race'); busy.code = 'E_REPAIR_BUSY'; throw busy;
+}
+
+async function releaseRepairTakeoverMutex(path, owner) {
+  try {
+    const current = validateRepairGuard(JSON.parse(await readFile(path, 'utf8')));
+    if (current.owner.token !== owner.token) { const busy = new Error('repair takeover mutex ownership changed'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+    await unlink(path); await syncDirectory(path);
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
+
+async function acquireRepairGuard(projectRoot, hooks = {}) {
   const path = projectPath(projectRoot, REPAIR_GUARD);
   const owner = { token: randomBytes(32).toString('hex'), pid: process.pid, processStartId: await processStartIdentity(process.pid), active: true };
   if (owner.processStartId === null) { const error = new Error('process identity unavailable'); error.code = 'E_REPAIR_OWNER'; throw error; }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       await writeJsonExclusive(path, stamp({ schemaVersion: '1.0.0', owner, integrity: { digest: null, upstream: {} } }));
+      const acquired = validateRepairGuard(JSON.parse(await readFile(path, 'utf8')));
+      if (acquired.owner.token !== owner.token) { const busy = new Error('repair guard ownership changed after acquisition'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
       return owner;
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
@@ -223,8 +258,28 @@ async function acquireRepairGuard(projectRoot) {
       if (liveIdentity !== null && liveIdentity === existing.owner.processStartId) {
         const busy = new Error('another repair transaction is active'); busy.code = 'E_REPAIR_BUSY'; throw busy;
       }
-      await unlink(path).catch((unlinkError) => { if (unlinkError.code !== 'ENOENT') throw unlinkError; });
-      await syncDirectory(path);
+      const mutex = `${path}.takeover`; const claim = `${path}.claim.${owner.token}`;
+      const mutexOwner = await acquireRepairTakeoverMutex(mutex, owner, hooks);
+      try {
+        if (hooks.beforeTakeoverClaim) await hooks.beforeTakeoverClaim();
+        let current;
+        try { current = validateRepairGuard(JSON.parse(await readFile(path, 'utf8'))); }
+        catch { const busy = new Error('repair guard changed during takeover'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+        if (current.integrity.digest !== existing.integrity.digest) { const busy = new Error('repair guard changed during takeover'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+        await rename(path, claim); await syncDirectory(path);
+        const claimed = validateRepairGuard(JSON.parse(await readFile(claim, 'utf8')));
+        if (claimed.integrity.digest !== existing.integrity.digest) {
+          await rename(claim, path).catch(() => {});
+          const busy = new Error('repair takeover claim changed'); busy.code = 'E_REPAIR_BUSY'; throw busy;
+        }
+        await writeJsonExclusive(path, stamp({ schemaVersion: '1.0.0', owner, integrity: { digest: null, upstream: {} } }));
+        const acquired = validateRepairGuard(JSON.parse(await readFile(path, 'utf8')));
+        if (acquired.owner.token !== owner.token) { const busy = new Error('repair guard ownership changed after takeover'); busy.code = 'E_REPAIR_BUSY'; throw busy; }
+        await unlink(claim); await syncDirectory(claim);
+        return owner;
+      } finally {
+        await releaseRepairTakeoverMutex(mutex, mutexOwner);
+      }
     }
   }
   const busy = new Error('repair guard takeover lost a race'); busy.code = 'E_REPAIR_BUSY'; throw busy;
@@ -240,17 +295,39 @@ async function releaseRepairGuard(projectRoot, owner) {
   }
 }
 
-function validateRepairJournal(value) {
-  const exact = ['schemaVersion', 'transactionId', 'owner', 'phase', 'priorHistoryDigest', 'priorStateDigest', 'nextHistory', 'nextState', 'integrity'].sort();
+function validateRepairHistory(value) {
+  const recordKeys = ['attempt', 'gate', 'repairClass', 'reason', 'invalidatedRoles', 'beforeDigests', 'afterDigests'];
+  if (!verifyArtifactIntegrity(value).valid || !stableKeys(Object.keys(value ?? {}).sort(), ['schemaVersion', 'revision', 'repairs', 'integrity'])
+    || value.schemaVersion !== '1.0.0' || !Number.isInteger(value.revision) || value.revision < 0 || !Array.isArray(value.repairs)
+    || value.repairs.some((record) => !stableKeys(Object.keys(record ?? {}).sort(), recordKeys)
+      || !Number.isInteger(record.attempt) || record.attempt < 1 || record.attempt > 3
+      || typeof record.gate !== 'string' || record.gate.length === 0 || typeof record.repairClass !== 'string' || record.repairClass.length === 0
+      || typeof record.reason !== 'string' || record.reason.length === 0 || !Array.isArray(record.invalidatedRoles)
+      || record.invalidatedRoles.some((role) => typeof role !== 'string' || role.length === 0)
+      || !record.beforeDigests || Object.values(record.beforeDigests).some((digest) => !/^[0-9a-f]{64}$/.test(digest))
+      || !record.afterDigests || Object.values(record.afterDigests).some((digest) => !/^[0-9a-f]{64}$/.test(digest)))) {
+    const error = new Error('repair history is structurally invalid'); error.code = 'E_REPAIR_JOURNAL_INVALID'; throw error;
+  }
+  return value;
+}
+
+async function validateRepairJournal(value) {
+  const exact = ['schemaVersion', 'transactionId', 'owner', 'phase', 'priorHistoryDigest', 'priorStateDigest', 'nextHistoryDigest', 'nextStateDigest', 'nextHistory', 'nextState', 'integrity'].sort();
   const keys = Object.keys(value ?? {}).sort();
   const ownerKeys = Object.keys(value?.owner ?? {}).sort();
   if (!verifyArtifactIntegrity(value).valid || !stableKeys(keys, exact) || !stableKeys(ownerKeys, ['active', 'pid', 'processStartId', 'token'])
     || value.schemaVersion !== '1.0.0' || !/^[0-9a-f]{32}$/.test(value.transactionId ?? '')
-    || !/^[0-9a-f]{64}$/.test(value.owner.token ?? '') || !Number.isInteger(value.owner.pid)
-    || typeof value.owner.processStartId !== 'string' || typeof value.owner.active !== 'boolean' || !REPAIR_PHASES.has(value.phase)
-    || !verifyArtifactIntegrity(value.nextHistory).valid || !verifyArtifactIntegrity(value.nextState).valid
-    || value.nextHistory.integrity.upstream.projectState !== value.nextState.integrity.digest) {
+    || !/^[0-9a-f]{64}$/.test(value.owner.token ?? '') || !Number.isInteger(value.owner.pid) || value.owner.pid <= 0
+    || typeof value.owner.processStartId !== 'string' || value.owner.processStartId.length === 0 || typeof value.owner.active !== 'boolean' || !REPAIR_PHASES.has(value.phase)
+    || !/^[0-9a-f]{64}$/.test(value.priorHistoryDigest ?? '') || !/^[0-9a-f]{64}$/.test(value.priorStateDigest ?? '')
+    || value.nextHistoryDigest !== value.nextHistory?.integrity?.digest || value.nextStateDigest !== value.nextState?.integrity?.digest
+    || value.nextHistory?.integrity?.upstream?.projectState !== value.nextStateDigest) {
     const error = new Error('repair journal is structurally invalid'); error.code = 'E_REPAIR_JOURNAL_INVALID'; throw error;
+  }
+  validateRepairHistory(value.nextHistory);
+  const stateValidation = validateDocument(await loadSchema('project-state'), value.nextState);
+  if (!stateValidation.valid || !verifyArtifactIntegrity(value.nextState).valid) {
+    const error = new Error('repair journal next state is invalid'); error.code = 'E_REPAIR_JOURNAL_INVALID'; throw error;
   }
   return value;
 }
@@ -258,8 +335,13 @@ function validateRepairJournal(value) {
 function stableKeys(left, right) { return left.length === right.length && left.every((entry, index) => entry === [...right].sort()[index]); }
 
 async function readRepairJournal(projectRoot) {
-  try { return validateRepairJournal(JSON.parse(await readFile(projectPath(projectRoot, REPAIR_JOURNAL), 'utf8'))); }
+  try { return await validateRepairJournal(JSON.parse(await readFile(projectPath(projectRoot, REPAIR_JOURNAL), 'utf8'))); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+export async function assertNoPendingRepairTransaction(projectRoot) {
+  if (await readRepairJournal(projectRoot)) { const error = new Error('a repair transaction is pending recovery'); error.code = 'E_REPAIR_PENDING'; throw error; }
+  return true;
 }
 
 async function recoverRepairTransaction(projectRoot) {
@@ -269,10 +351,33 @@ async function recoverRepairTransaction(projectRoot) {
   if (journal.owner.active && liveIdentity !== null && liveIdentity === journal.owner.processStartId) {
     const error = new Error('another repair transaction is active'); error.code = 'E_REPAIR_BUSY'; throw error;
   }
-  await writeJsonAtomic(projectPath(projectRoot, 'cache/REPAIR_HISTORY.json'), journal.nextHistory, journal.transactionId);
-  await writeJsonAtomic(projectPath(projectRoot, 'PROJECT_STATE.json'), journal.nextState, journal.transactionId);
+  const [currentHistory, currentState] = await Promise.all([readRepairHistory(projectRoot), readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8').then(JSON.parse)]);
+  const currentStateValidation = validateDocument(await loadSchema('project-state'), currentState);
+  if (!currentStateValidation.valid || !verifyArtifactIntegrity(currentState).valid) { const error = new Error('current repair state is invalid'); error.code = 'E_REPAIR_JOURNAL_STALE'; throw error; }
+  const historySide = currentHistory.integrity.digest === journal.priorHistoryDigest ? 'prior' : currentHistory.integrity.digest === journal.nextHistoryDigest ? 'next' : null;
+  const stateSide = currentState.integrity.digest === journal.priorStateDigest ? 'prior' : currentState.integrity.digest === journal.nextStateDigest ? 'next' : null;
+  if (!historySide || !stateSide) { const error = new Error('repair journal no longer matches the current history/state pair'); error.code = 'E_REPAIR_JOURNAL_STALE'; throw error; }
+  const writeHistory = async () => {
+    if ((await readRepairHistory(projectRoot)).integrity.digest !== journal.priorHistoryDigest) { const error = new Error('repair history advanced during recovery'); error.code = 'E_REPAIR_JOURNAL_STALE'; throw error; }
+    await writeJsonAtomic(projectPath(projectRoot, 'cache/REPAIR_HISTORY.json'), journal.nextHistory, journal.transactionId);
+  };
+  const writeState = async () => {
+    const current = JSON.parse(await readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8'));
+    if (current.integrity.digest !== journal.priorStateDigest) { const error = new Error('repair state advanced during recovery'); error.code = 'E_REPAIR_JOURNAL_STALE'; throw error; }
+    await writeJsonAtomic(projectPath(projectRoot, 'PROJECT_STATE.json'), journal.nextState, journal.transactionId);
+  };
+  if (journal.nextState.state === 'BLOCKED') {
+    if (stateSide === 'prior') await writeState();
+    if (historySide === 'prior') await writeHistory();
+  } else {
+    if (historySide === 'prior') await writeHistory();
+    if (stateSide === 'prior') await writeState();
+  }
+  const [finalHistory, finalState] = await Promise.all([readRepairHistory(projectRoot), readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8').then(JSON.parse)]);
+  if (finalHistory.integrity.digest !== journal.nextHistoryDigest || finalState.integrity.digest !== journal.nextStateDigest) { const error = new Error('repair recovery did not commit its exact pair'); error.code = 'E_REPAIR_JOURNAL_STALE'; throw error; }
   await unlink(projectPath(projectRoot, REPAIR_JOURNAL));
   await syncDirectory(projectPath(projectRoot, REPAIR_JOURNAL));
+  return { recovered: true, state: finalState.state };
 }
 
 async function createRepairJournal(projectRoot, journal) {
@@ -292,8 +397,7 @@ async function createRepairJournal(projectRoot, journal) {
 async function readRepairHistory(projectRoot) {
   try {
     const value = JSON.parse(await readFile(projectPath(projectRoot, 'cache/REPAIR_HISTORY.json'), 'utf8'));
-    if (!verifyArtifactIntegrity(value).valid || !Array.isArray(value.repairs)) throw new Error('repair history integrity is invalid');
-    return value;
+    return validateRepairHistory(value);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     const value = { schemaVersion: '1.0.0', revision: 0, repairs: [], integrity: { digest: null, upstream: {} } };
@@ -303,7 +407,8 @@ async function readRepairHistory(projectRoot) {
 }
 
 async function persistApprovedRepairUnderGuard(projectRoot, change, context, guard) {
-  await recoverRepairTransaction(projectRoot);
+  const recovery = await recoverRepairTransaction(projectRoot);
+  if (recovery?.state === 'BLOCKED') return recovery;
   const transactionId = randomBytes(16).toString('hex');
   const owner = structuredClone(guard);
   const [projectState, persistedHistory] = await Promise.all([
@@ -323,14 +428,15 @@ async function persistApprovedRepairUnderGuard(projectRoot, change, context, gua
     integrity: { digest: null, upstream: { projectState: nextState.integrity.digest } },
   };
   history.integrity.digest = computeArtifactDigest(history);
-  const journal = { schemaVersion: '1.0.0', transactionId, owner, phase: 'prepared', priorHistoryDigest: persistedHistory.integrity.digest, priorStateDigest: projectState.integrity.digest, nextHistory: history, nextState, integrity: { digest: null, upstream: {} } };
+  const journal = { schemaVersion: '1.0.0', transactionId, owner, phase: 'prepared', priorHistoryDigest: persistedHistory.integrity.digest, priorStateDigest: projectState.integrity.digest, nextHistoryDigest: history.integrity.digest, nextStateDigest: nextState.integrity.digest, nextHistory: history, nextState, integrity: { digest: null, upstream: {} } };
   let owns = false;
   try {
     await createRepairJournal(projectRoot, journal); owns = true;
-    await writeJsonAtomic(projectPath(projectRoot, 'cache/REPAIR_HISTORY.json'), history, transactionId);
-    journal.phase = 'history-renamed'; await writeJsonAtomic(projectPath(projectRoot, REPAIR_JOURNAL), stamp(journal), transactionId);
-    if (context.injectFailure === 'afterHistoryRename') { const error = new Error('injected repair transaction failure'); error.code = 'E_INJECTED_FAILURE'; throw error; }
-    await writeJsonAtomic(projectPath(projectRoot, 'PROJECT_STATE.json'), nextState, transactionId);
+    const inject = (point) => { if (context.injectFailure === point) { const error = new Error('injected repair transaction failure'); error.code = 'E_INJECTED_FAILURE'; throw error; } };
+    const commitHistory = async () => { await writeJsonAtomic(projectPath(projectRoot, 'cache/REPAIR_HISTORY.json'), history, transactionId); inject('afterHistoryRename'); journal.phase = 'history-renamed'; await writeJsonAtomic(projectPath(projectRoot, REPAIR_JOURNAL), stamp(journal), transactionId); };
+    const commitState = async () => { await writeJsonAtomic(projectPath(projectRoot, 'PROJECT_STATE.json'), nextState, transactionId); inject('afterStateRename'); journal.phase = 'state-renamed'; await writeJsonAtomic(projectPath(projectRoot, REPAIR_JOURNAL), stamp(journal), transactionId); };
+    if (nextState.state === 'BLOCKED') { await commitState(); await commitHistory(); }
+    else { await commitHistory(); await commitState(); }
     journal.phase = 'pair-renamed'; await writeJsonAtomic(projectPath(projectRoot, REPAIR_JOURNAL), stamp(journal), transactionId);
     const [persistedNextHistory, persistedNextState] = await Promise.all([readRepairHistory(projectRoot), readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8').then(JSON.parse)]);
     if (persistedNextHistory.integrity.upstream.projectState !== persistedNextState.integrity.digest) throw new Error('repair transaction pair is split');
@@ -343,7 +449,7 @@ async function persistApprovedRepairUnderGuard(projectRoot, change, context, gua
 }
 
 export async function persistApprovedRepair(projectRoot, change, context) {
-  const guard = await acquireRepairGuard(projectRoot);
+  const guard = await acquireRepairGuard(projectRoot, context.guardHooks);
   try { return await persistApprovedRepairUnderGuard(projectRoot, change, context, guard); }
   finally { await releaseRepairGuard(projectRoot, guard); }
 }

@@ -66,7 +66,8 @@ export function validateGateEvidence(next, records, currentArtifacts, options = 
     const actualRoles = [...roles].sort();
     const exactRoles = expectedRoles.length === actualRoles.length && expectedRoles.every((role, index) => role === actualRoles[index]);
     const exactQualifiers = records.every((record) => record.qualifiers.length === 1 && record.qualifiers[0] === requirement.roles[record.role]);
-    if (!exactRoles || !exactQualifiers) throw new ProjectStateError(requirement.code, `${next} evidence requirements are not satisfied`);
+    const exactProducer = next !== 'DIRECTOR_LOCK' || records.every(({ producerCommand }) => producerCommand === 'lock_direction.mjs');
+    if (!exactRoles || !exactQualifiers || !exactProducer) throw new ProjectStateError(requirement.code, `${next} evidence requirements are not satisfied`);
   }
   return true;
 }

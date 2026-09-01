@@ -144,10 +144,13 @@ function tokenStyle() {
 function renderContent(model) {
   const active = model.proposals.candidates[0];
   const total = Math.max(...model.timeline.items.map(({ destinationOutSeconds }) => destinationOutSeconds), 1);
-  const stageIndex = STAGES.indexOf(model.state.state);
+  const locked = typeof model.lockedBinding === 'string';
+  const stageIndex = locked ? STAGES.length - 1 : STAGES.indexOf(model.state.state);
+  const gateLabel = locked ? 'DIRECTOR LOCK' : 'DIRECTOR REVIEW';
+  const gateNote = locked ? 'Read-only' : 'One approval';
   return `<main class="workbench-shell">
   <div class="director-deck">
-    <header class="topline"><div class="wordmark"><span class="wordmark-mark"></span><span>HyperFrames / Director Workbench</span></div><span class="gate-stamp">Gate <strong>DIRECTOR REVIEW</strong> · One approval</span></header>
+    <header class="topline"><div class="wordmark"><span class="wordmark-mark"></span><span>HyperFrames / Director Workbench</span></div><span class="gate-stamp">Gate <strong>${gateLabel}</strong> · ${gateNote}</span></header>
     ${model.proposals.candidates.map((candidate, index) => renderStage(candidate, index, model.keyFrames)).join('\n')}
     <nav class="candidate-filmstrip" style="--candidate-count:${model.proposals.candidates.length}" aria-label="Whole direction candidates">${model.proposals.candidates.map(renderCandidateTab).join('')}</nav>
     <section class="evidence-room">
@@ -159,7 +162,7 @@ function renderContent(model) {
     </section>
   </div>
   <aside class="production-rail">
-    <div class="rail-kicker"><span>DIRECTOR REVIEW</span><span>Rev ${model.proposals.revision}</span></div>
+    <div class="rail-kicker"><span>${gateLabel}</span><span>Rev ${model.proposals.revision}</span></div>
     <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}</ol>
     <section class="rail-section"><h3>BRIEF</h3><h2>${escapeHtml(model.brief.copy.title ?? 'Untitled journey')}</h2><p class="rail-copy">${escapeHtml(model.brief.story.tone ?? 'observational')} · ${model.brief.duration.targetSeconds}s · ${escapeHtml(model.brief.story.pacing)}</p></section>
     ${model.approvalAvailable ? renderApprovalZone(active) : ''}
@@ -290,13 +293,17 @@ export async function buildWorkbenchModel(projectRoot) {
 export function renderWorkbenchHtml(model) {
   const modelDigest = computeArtifactDigest({
     state: model.state.integrity.digest, displayed: model.displayedArtifactDigests, approvalAvailable: model.approvalAvailable,
+    lockedBinding: model.lockedBinding ?? null,
   });
-  return TEMPLATE
+  const html = TEMPLATE
     .replace('{{TOKENS}}', tokenStyle())
     .replace('{{MODEL_DIGEST}}', modelDigest)
     .replace('{{STYLESHEET}}', reviewUrl(model.stylesheetPath))
     .replace('{{SCRIPT}}', reviewUrl(model.scriptPath))
     .replace('{{CONTENT}}', renderContent(model));
+  return model.lockedBinding
+    ? html.replace('<html lang="en">', `<html lang="en" data-state="DIRECTOR_LOCK" data-state-revision="${model.state.revision}" data-state-binding="${model.lockedBinding}">`)
+    : html;
 }
 
 async function writeAtomic(path, bytes, mode = 0o600, beforeRename) {

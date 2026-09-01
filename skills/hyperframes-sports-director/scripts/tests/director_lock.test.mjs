@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -204,8 +204,8 @@ async function fixture(t) {
   await writeJson(join(root, 'direction/LOOK_PROFILE.json'), draftLook());
   await writeJson(join(root, 'PROJECT_STATE.json'), stateAtReview());
 
-  const rebuildWorkbench = async ({ selectedCandidate, state }) => {
-    return { html: renderLockedWorkbench(state, selectedCandidate) };
+  const rebuildWorkbench = async ({ canonicalHtml }) => {
+    return { html: canonicalHtml };
   };
   return { root, approval, proposals, candidates, rebuildWorkbench };
 }
@@ -249,6 +249,11 @@ test('lock commits one matching frozen pair, gate evidence, consumed approval, a
   assert.equal(state.transitions.at(-1).evidenceDigests.WORKBENCH, result.workbenchDigest);
   assert.match(html, /Monumental Quiet/);
   assert.doesNotMatch(html, /Kinetic Ledger|data-approve|Approve/);
+  for (const evidence of ['KEY FRAMES', 'SHOT LEDGER / ROUGH CUT', 'STORY ARC', 'LOCAL MUSIC', 'COMPONENT / HERO PLAN', 'RISKS']) {
+    assert.match(html, new RegExp(evidence.replaceAll('/', '\\/')));
+  }
+  assert.match(html, /DIRECTOR LOCK/);
+  assert.match(html, /data-state-binding="[0-9a-f]{64}"/);
   assert.equal((await validateCommittedDirection(root)).design.integrity.digest, design.integrity.digest);
   await assert.rejects(() => lockDirection(root, { now: () => NOW, rebuildWorkbench }), (error) => error.code === 'E_APPROVAL_CONSUMED');
 });
@@ -393,6 +398,8 @@ test('generic state transitions enforce the exact DIRECTOR_LOCK hard gate', () =
   assert.throws(() => validateTransition('DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', { records: records.slice(0, 3), currentArtifacts }), (error) => error.code === 'E_DIRECTOR_LOCK_GATE');
   const wrong = structuredClone(records); wrong[3].qualifiers = ['accepted'];
   assert.throws(() => validateTransition('DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', { records: wrong, currentArtifacts }), (error) => error.code === 'E_DIRECTOR_LOCK_GATE');
+  const forged = structuredClone(records); forged.forEach((entry) => { entry.producerCommand = 'forged-lock.mjs'; });
+  assert.throws(() => validateTransition('DIRECTOR_REVIEW_READY', 'DIRECTOR_LOCK', { records: forged, currentArtifacts }), (error) => error.code === 'E_DIRECTOR_LOCK_GATE');
 });
 
 test('approval authority schema-validates sources and rehashes every prototype and evidence derivative', async (t) => {
@@ -519,6 +526,150 @@ test('state is committed before the locked view becomes visible and state-rename
   const recovered = await lockDirection(root, { now: () => NOW, rebuildWorkbench });
   assert.equal(recovered.recovered, true);
   assert.equal((await validateCommittedDirection(root)).state.state, 'DIRECTOR_LOCK');
+});
+
+test('state-intent recovery closes the crash after durable state rename and publishes exact staged evidence', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(
+    () => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'afterStateRenameBeforeJournal' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  const journal = JSON.parse(await readFile(join(root, 'cache/direction-lock.transaction.json'), 'utf8'));
+  assert.equal(journal.phase, 'state-intent');
+  assert.equal(JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8')).state, 'DIRECTOR_LOCK');
+  assert.match(await readFile(join(root, 'review/director-workbench.html'), 'utf8'), /data-approve/);
+  const staged = await readFile(join(root, journal.workbenchTemp), 'utf8');
+  const recovered = await lockDirection(root, { now: () => NOW, rebuildWorkbench });
+  assert.equal(recovered.recovered, true);
+  assert.equal(await readFile(join(root, 'review/director-workbench.html'), 'utf8'), staged);
+  await validateCommittedDirection(root);
+});
+
+test('pending repair transactions block committed-direction consumers and recover only recognized prior/next pairs', async (t) => {
+  const historyFirst = await fixture(t);
+  await lockDirection(historyFirst.root, { now: () => NOW, rebuildWorkbench: historyFirst.rebuildWorkbench });
+  const change = { repairClass: 'position', role: 'MOTION_MAP' };
+  const context = { gate: 'FINAL_QA', reason: 'collision', timestamp: '2026-09-01T12:01:00.000Z', beforeDigests: { MOTION_MAP: HEX('before') }, afterDigests: { MOTION_MAP: HEX('after') } };
+  await assert.rejects(() => persistApprovedRepair(historyFirst.root, change, { ...context, injectFailure: 'afterHistoryRename' }), (error) => error.code === 'E_INJECTED_FAILURE');
+  await assert.rejects(() => validateCommittedDirection(historyFirst.root), (error) => error.code === 'E_REPAIR_PENDING');
+  await persistApprovedRepair(historyFirst.root, change, { ...context, timestamp: '2026-09-01T12:02:00.000Z' });
+  await assert.rejects(stat(join(historyFirst.root, 'cache/repair.transaction.json')), (error) => error.code === 'ENOENT');
+
+  const stateFirst = await fixture(t);
+  await lockDirection(stateFirst.root, { now: () => NOW, rebuildWorkbench: stateFirst.rebuildWorkbench });
+  await assert.rejects(
+    () => persistApprovedRepair(stateFirst.root, { repairClass: 'delivery' }, { ...context, injectFailure: 'afterStateRename' }),
+    (error) => error.code === 'E_INJECTED_FAILURE',
+  );
+  assert.equal(JSON.parse(await readFile(join(stateFirst.root, 'PROJECT_STATE.json'), 'utf8')).state, 'BLOCKED');
+  await persistApprovedRepair(stateFirst.root, { repairClass: 'delivery' }, { ...context, timestamp: '2026-09-01T12:03:00.000Z' });
+  const recoveredHistory = JSON.parse(await readFile(join(stateFirst.root, 'cache/REPAIR_HISTORY.json'), 'utf8'));
+  const recoveredState = JSON.parse(await readFile(join(stateFirst.root, 'PROJECT_STATE.json'), 'utf8'));
+  assert.equal(recoveredHistory.integrity.upstream.projectState, recoveredState.integrity.digest);
+});
+
+test('repair recovery rejects malformed payloads and never overwrites a later legitimate state', async (t) => {
+  const malformed = await fixture(t);
+  await lockDirection(malformed.root, { now: () => NOW, rebuildWorkbench: malformed.rebuildWorkbench });
+  const context = { gate: 'FINAL_QA', reason: 'collision', timestamp: '2026-09-01T12:01:00.000Z', beforeDigests: {}, afterDigests: {}, injectFailure: 'afterHistoryRename' };
+  await assert.rejects(() => persistApprovedRepair(malformed.root, { repairClass: 'position', role: 'MOTION_MAP' }, context), (error) => error.code === 'E_INJECTED_FAILURE');
+  const malformedJournalPath = join(malformed.root, 'cache/repair.transaction.json');
+  const malformedJournal = JSON.parse(await readFile(malformedJournalPath, 'utf8'));
+  delete malformedJournal.nextState.state;
+  await writeJson(malformedJournalPath, malformedJournal);
+  await assert.rejects(
+    () => persistApprovedRepair(malformed.root, { repairClass: 'position', role: 'MOTION_MAP' }, { ...context, injectFailure: undefined }),
+    (error) => error.code === 'E_REPAIR_JOURNAL_INVALID',
+  );
+
+  const stale = await fixture(t);
+  await lockDirection(stale.root, { now: () => NOW, rebuildWorkbench: stale.rebuildWorkbench });
+  await assert.rejects(() => persistApprovedRepair(stale.root, { repairClass: 'position', role: 'MOTION_MAP' }, context), (error) => error.code === 'E_INJECTED_FAILURE');
+  const statePath = join(stale.root, 'PROJECT_STATE.json');
+  const current = JSON.parse(await readFile(statePath, 'utf8'));
+  const later = applyApprovedRepair(current, { repairClass: 'delivery' }, { gate: 'FINAL_QA', reason: 'later legitimate terminal decision', timestamp: '2026-09-01T12:04:00.000Z', beforeDigests: {}, afterDigests: {}, history: [] }).projectState;
+  await writeJson(statePath, later);
+  const laterDigest = later.integrity.digest;
+  await assert.rejects(
+    () => persistApprovedRepair(stale.root, { repairClass: 'position', role: 'MOTION_MAP' }, { ...context, injectFailure: undefined }),
+    (error) => error.code === 'E_REPAIR_JOURNAL_STALE',
+  );
+  assert.equal(JSON.parse(await readFile(statePath, 'utf8')).integrity.digest, laterDigest);
+});
+
+async function liveOwner(token) {
+  const startId = (await readFile(`/proc/${process.pid}/stat`, 'utf8')).trim().split(' ')[21];
+  return { token, pid: process.pid, processStartId: startId, active: true };
+}
+
+test('direction and repair stale takeovers never remove a replacement owner', async (t) => {
+  const direction = await fixture(t);
+  const directionGuardPath = join(direction.root, 'cache/direction-lock.guard.json');
+  await writeJson(directionGuardPath, { schemaVersion: '1.0.0', owner: { token: 'a'.repeat(64), pid: 999999, processStartId: 'stale', active: true }, integrity: { digest: null, upstream: {} } });
+  const directionReplacement = await liveOwner('b'.repeat(64));
+  await assert.rejects(() => lockDirection(direction.root, {
+    now: () => NOW,
+    rebuildWorkbench: direction.rebuildWorkbench,
+    guardHooks: { beforeTakeoverClaim: async () => { await unlink(directionGuardPath); await writeJson(directionGuardPath, { schemaVersion: '1.0.0', owner: directionReplacement, integrity: { digest: null, upstream: {} } }); } },
+  }), (error) => error.code === 'E_LOCK_BUSY');
+  assert.equal(JSON.parse(await readFile(directionGuardPath, 'utf8')).owner.token, directionReplacement.token);
+
+  const repair = await fixture(t);
+  await lockDirection(repair.root, { now: () => NOW, rebuildWorkbench: repair.rebuildWorkbench });
+  const repairGuardPath = join(repair.root, 'cache/repair.guard.json');
+  await writeJson(repairGuardPath, { schemaVersion: '1.0.0', owner: { token: 'c'.repeat(64), pid: 999999, processStartId: 'stale', active: true }, integrity: { digest: null, upstream: {} } });
+  const repairReplacement = await liveOwner('d'.repeat(64));
+  await assert.rejects(() => persistApprovedRepair(repair.root, { repairClass: 'position', role: 'MOTION_MAP' }, {
+    gate: 'FINAL_QA', reason: 'collision', timestamp: NOW, beforeDigests: {}, afterDigests: {},
+    guardHooks: { beforeTakeoverClaim: async () => { await unlink(repairGuardPath); await writeJson(repairGuardPath, { schemaVersion: '1.0.0', owner: repairReplacement, integrity: { digest: null, upstream: {} } }); } },
+  }), (error) => error.code === 'E_REPAIR_BUSY');
+  assert.equal(JSON.parse(await readFile(repairGuardPath, 'utf8')).owner.token, repairReplacement.token);
+});
+
+test('takeover mutexes recover exact dead owners and preserve replacement mutex owners', async (t) => {
+  const recoveredDirection = await fixture(t);
+  const directionGuard = join(recoveredDirection.root, 'cache/direction-lock.guard.json');
+  const directionMutex = `${directionGuard}.takeover`;
+  const staleDirection = { schemaVersion: '1.0.0', owner: { token: '1'.repeat(64), pid: 999999, processStartId: 'dead', active: true }, integrity: { digest: null, upstream: {} } };
+  await writeJson(directionGuard, structuredClone(staleDirection));
+  await writeJson(directionMutex, structuredClone(staleDirection));
+  assert.equal((await lockDirection(recoveredDirection.root, { now: () => NOW, rebuildWorkbench: recoveredDirection.rebuildWorkbench })).ok, true);
+  await assert.rejects(stat(directionMutex), (error) => error.code === 'ENOENT');
+
+  const replacedDirection = await fixture(t);
+  const replacedGuard = join(replacedDirection.root, 'cache/direction-lock.guard.json');
+  const replacedMutex = `${replacedGuard}.takeover`;
+  await writeJson(replacedGuard, structuredClone(staleDirection));
+  await writeJson(replacedMutex, structuredClone(staleDirection));
+  const liveDirection = await liveOwner('2'.repeat(64));
+  await assert.rejects(() => lockDirection(replacedDirection.root, {
+    now: () => NOW, rebuildWorkbench: replacedDirection.rebuildWorkbench,
+    guardHooks: { beforeTakeoverMutexClaim: async () => { await unlink(replacedMutex); await writeJson(replacedMutex, { schemaVersion: '1.0.0', owner: liveDirection, integrity: { digest: null, upstream: {} } }); } },
+  }), (error) => error.code === 'E_LOCK_BUSY');
+  assert.equal(JSON.parse(await readFile(replacedMutex, 'utf8')).owner.token, liveDirection.token);
+
+  const recoveredRepair = await fixture(t);
+  await lockDirection(recoveredRepair.root, { now: () => NOW, rebuildWorkbench: recoveredRepair.rebuildWorkbench });
+  const repairGuard = join(recoveredRepair.root, 'cache/repair.guard.json');
+  const repairMutex = `${repairGuard}.takeover`;
+  const staleRepair = { schemaVersion: '1.0.0', owner: { token: '3'.repeat(64), pid: 999999, processStartId: 'dead', active: true }, integrity: { digest: null, upstream: {} } };
+  await writeJson(repairGuard, structuredClone(staleRepair));
+  await writeJson(repairMutex, structuredClone(staleRepair));
+  const repaired = await persistApprovedRepair(recoveredRepair.root, { repairClass: 'position', role: 'MOTION_MAP' }, { gate: 'FINAL_QA', reason: 'collision', timestamp: NOW, beforeDigests: {}, afterDigests: {} });
+  assert.equal(repaired.code, 'repair_allowed');
+  await assert.rejects(stat(repairMutex), (error) => error.code === 'ENOENT');
+});
+
+test('direction journals reject malformed owner fields', async (t) => {
+  const { root, rebuildWorkbench } = await fixture(t);
+  await assert.rejects(() => lockDirection(root, { now: () => NOW, rebuildWorkbench, injectFailure: 'afterTemporaryWrites' }), (error) => error.code === 'E_INJECTED_FAILURE');
+  const path = join(root, 'cache/direction-lock.transaction.json');
+  const journal = JSON.parse(await readFile(path, 'utf8'));
+  journal.owner.pid = 1.5;
+  journal.owner.processStartId = '';
+  journal.owner.active = 'yes';
+  await writeJson(path, journal);
+  await assert.rejects(() => lockDirection(root, { now: () => NOW, rebuildWorkbench }), (error) => error.code === 'E_LOCK_JOURNAL_INVALID');
 });
 
 test('committed consumer rejects wrong lock qualifier and repair journal rejects structural drift', async (t) => {
