@@ -48,6 +48,18 @@ export async function ffprobeJson(path) {
   }
 }
 
+export async function ffprobeFirstFrameJson(path) {
+  const { stdout } = await runCommand('ffprobe', [
+    '-v', 'error', '-select_streams', 'v:0', '-show_frames', '-read_intervals', '%+#1', '-of', 'json', path,
+  ]);
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    error.code = 'E_FFPROBE_JSON';
+    throw error;
+  }
+}
+
 export async function assertImageDecodes(path) {
   await runCommand('ffmpeg', ['-v', 'error', '-nostdin', '-i', path, '-frames:v', '1', '-f', 'null', '-']);
 }

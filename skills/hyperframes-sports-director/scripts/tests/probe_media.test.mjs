@@ -64,6 +64,16 @@ test('probe_media records normalized rational stream facts, rotation, color, and
   const landscape = document.media.find((entry) => entry.captureTimestamp === '2026-09-01T12:02:00.000Z');
   assert.equal(landscape.mediaType, 'image');
   assert.deepEqual([landscape.streams[0].width, landscape.streams[0].height], [160, 90]);
+  assert.deepEqual(landscape.stillDisplay, {
+    orientationSource: 'exif',
+    exifOrientation: 6,
+    rotationDegrees: 90,
+    mirrored: false,
+    encodedWidth: 160,
+    encodedHeight: 90,
+    displayWidth: 90,
+    displayHeight: 160,
+  });
   assert.equal(landscape.durationSeconds, null);
   assert.ok(Object.hasOwn(landscape.streams[0], 'colorSpace'));
   assert.ok(Object.hasOwn(landscape.streams[0], 'colorPrimaries'));
@@ -78,6 +88,9 @@ test('probe_media records normalized rational stream facts, rotation, color, and
   const rawFiles = await readdir(join(project, 'cache', 'probe', 'raw'));
   assert.equal(rawFiles.length, 7);
   assert.ok(rawFiles.every((name) => /^media-[0-9a-f]{16}-[0-9]{3}\.ffprobe\.json$/.test(name)));
+  const orientedRaw = JSON.parse(await readFile(join(project, 'cache', 'probe', 'raw', `${landscape.mediaId}.ffprobe.json`), 'utf8'));
+  assert.equal(orientedRaw.frames[0].tags.Orientation.trim(), '6');
+  assert.equal(orientedRaw.frames[0].side_data_list[0].rotation, -90);
 
   const indexPath = join(project, 'analysis', 'MEDIA_INDEX.json');
   const truncatedIndex = JSON.parse(await readFile(indexPath, 'utf8'));

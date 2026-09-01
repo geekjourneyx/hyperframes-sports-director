@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { errorResult, parseCliArguments } from './lib/cli.mjs';
 import { computeArtifactDigest, validateArtifact, validateDocument, loadSchema } from './lib/contracts.mjs';
-import { assertImageDecodes, ffprobeJson } from './lib/ffmpeg.mjs';
+import { assertImageDecodes, ffprobeFirstFrameJson, ffprobeJson } from './lib/ffmpeg.mjs';
 import { projectPath, readSourceRegistry, writeJsonAtomic } from './lib/media.mjs';
 
 function gcd(left, right) {
@@ -79,6 +79,43 @@ function normalizeStream(stream, index) {
   return normalized;
 }
 
+function normalizeStillDisplay(raw) {
+  const stream = raw.streams.find(({ codec_type: type }) => type === 'video');
+  const frame = raw.frames?.[0];
+  const taggedOrientation = Number.parseInt(String(frame?.tags?.Orientation ?? '').trim(), 10);
+  const exifOrientation = taggedOrientation >= 1 && taggedOrientation <= 8 ? taggedOrientation : null;
+  const exifTransforms = {
+    1: [0, false], 2: [0, true], 3: [180, false], 4: [180, true],
+    5: [90, true], 6: [90, false], 7: [270, true], 8: [270, false],
+  };
+  let orientationSource = 'encoded';
+  let rotationDegrees = 0;
+  let mirrored = false;
+  if (exifOrientation !== null) {
+    orientationSource = 'exif';
+    [rotationDegrees, mirrored] = exifTransforms[exifOrientation];
+  } else {
+    const matrixRotation = frame?.side_data_list?.find((entry) => Number.isFinite(Number(entry.rotation)))?.rotation;
+    if (Number.isFinite(Number(matrixRotation))) {
+      orientationSource = 'display-matrix';
+      rotationDegrees = ((-Number(matrixRotation) % 360) + 360) % 360;
+    }
+  }
+  const encodedWidth = Number(stream.width);
+  const encodedHeight = Number(stream.height);
+  const swapsAxes = rotationDegrees === 90 || rotationDegrees === 270;
+  return {
+    orientationSource,
+    exifOrientation,
+    rotationDegrees,
+    mirrored,
+    encodedWidth,
+    encodedHeight,
+    displayWidth: swapsAxes ? encodedHeight : encodedWidth,
+    displayHeight: swapsAxes ? encodedWidth : encodedHeight,
+  };
+}
+
 function reviewPath(mediaId, mediaType) {
   if (mediaType === 'video') return `review/probe/${mediaId}.mp4`;
   if (mediaType === 'image') return `review/probe/${mediaId}.webp`;
@@ -86,8 +123,8 @@ function reviewPath(mediaId, mediaType) {
 }
 
 export async function probeMedia(options) {
-  const { project, registry } = await readSourceRegistry(options.project, options.input);
-  const indexPath = projectPath(project, 'analysis/MEDIA_INDEX.json');
+  const { project, input, registry } = await readSourceRegistry(options.project, options.input);
+  const indexPath = projectPath(project, 'analysis/MEDIA_INDEX.json', input);
   const indexValidation = await validateArtifact(indexPath, 'media-index');
   if (!indexValidation.valid) {
     const error = new Error('MEDIA_INDEX is missing or integrity-invalid');
@@ -112,8 +149,12 @@ export async function probeMedia(options) {
   for (const source of probeable) {
     const indexed = mediaById.get(source.mediaId);
     const raw = await ffprobeJson(source.sourcePath);
-    if (indexed.mediaType === 'image') await assertImageDecodes(source.sourcePath);
-    await writeJsonAtomic(projectPath(project, `cache/probe/raw/${source.mediaId}.ffprobe.json`), raw);
+    if (indexed.mediaType === 'image') {
+      await assertImageDecodes(source.sourcePath);
+      const frameProbe = await ffprobeFirstFrameJson(source.sourcePath);
+      raw.frames = frameProbe.frames ?? [];
+    }
+    await writeJsonAtomic(projectPath(project, `cache/probe/raw/${source.mediaId}.ffprobe.json`, input), raw);
     const streams = raw.streams.map(normalizeStream);
     normalized.push({
       mediaId: source.mediaId,
@@ -124,12 +165,14 @@ export async function probeMedia(options) {
       durationSeconds: indexed.mediaType === 'image' ? null : finiteNumber(raw.format?.duration),
       streams,
       captureTimestamp: captureTimestamp(source.sourcePath, raw),
+      ...(indexed.mediaType === 'image' ? { stillDisplay: normalizeStillDisplay(raw) } : {}),
       proxy: null,
     });
   }
   normalized.sort((left, right) => left.mediaId.localeCompare(right.mediaId));
   let priorRevision = 0;
-  try { priorRevision = JSON.parse(await readFile(projectPath(project, 'analysis/PROBE.json'), 'utf8')).revision ?? 0; } catch {}
+  const probePath = projectPath(project, 'analysis/PROBE.json', input);
+  try { priorRevision = JSON.parse(await readFile(probePath, 'utf8')).revision ?? 0; } catch {}
   const document = {
     $schema: 'https://hyperframes.local/schemas/probe.schema.json',
     schemaVersion: '1.0.0',
@@ -144,7 +187,7 @@ export async function probeMedia(options) {
     error.code = 'E_PROBE_INVALID';
     throw error;
   }
-  await writeJsonAtomic(projectPath(project, 'analysis/PROBE.json'), document);
+  await writeJsonAtomic(probePath, document);
   return { ok: true, probed: normalized.length, artifact: 'analysis/PROBE.json' };
 }
 

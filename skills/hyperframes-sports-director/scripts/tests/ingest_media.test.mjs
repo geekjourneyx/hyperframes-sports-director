@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,15 +36,20 @@ function runCli(script, args) {
 }
 
 async function snapshot(root) {
-  const records = [];
+  const records = [['.', 'directory']];
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
-      if (entry.isDirectory()) await visit(path);
-      else {
-        const metadata = await stat(path);
+      const relativePath = path.slice(root.length + 1);
+      const metadata = await lstat(path);
+      if (entry.isDirectory()) {
+        records.push([relativePath, 'directory', metadata.mode, metadata.mtimeMs]);
+        await visit(path);
+      } else if (entry.isSymbolicLink()) {
+        records.push([relativePath, 'symlink', metadata.mode, metadata.mtimeMs]);
+      } else {
         const digest = createHash('sha256').update(await readFile(path)).digest('hex');
-        records.push([path.slice(root.length + 1), metadata.mode, metadata.size, metadata.mtimeMs, digest]);
+        records.push([relativePath, 'file', metadata.mode, metadata.size, metadata.mtimeMs, digest]);
       }
     }
   }
@@ -88,7 +93,9 @@ test('ingest_media recursively indexes immutable mixed media without leaking sou
   )));
   const portableText = JSON.stringify(document);
   assert.equal(portableText.includes(input), false);
-  for (const [relativePath] of before) assert.equal(portableText.includes(relativePath.split('/').at(-1)), false);
+  for (const [relativePath, type] of before) {
+    if (type === 'file') assert.equal(portableText.includes(relativePath.split('/').at(-1)), false);
+  }
 
   const registry = JSON.parse(await readFile(join(project, 'cache', 'source-registry.json'), 'utf8'));
   assert.equal(registry.portable, false);
@@ -103,4 +110,52 @@ test('ingest_media recursively indexes immutable mixed media without leaking sou
   const expectedDigest = createHash('sha256').update(await readFile(mainPath)).digest('hex');
   const mainRegistry = registry.entries.find(({ sourcePath }) => sourcePath === mainPath);
   assert.equal(document.entries.find(({ mediaId }) => mediaId === mainRegistry.mediaId).sourceDigest, expectedDigest);
+});
+
+test('ingest_media rejects canonical project/input overlap before changing either protected tree', async (t) => {
+  const cases = [
+    ['project root symlink targets input', async (scratch) => {
+      const input = join(scratch, 'input');
+      const project = join(scratch, 'project-alias');
+      await mkdir(input);
+      await writeFile(join(input, 'source.txt'), 'immutable\n');
+      await symlink(input, project, 'dir');
+      return { input, project, protectedRoot: input };
+    }],
+    ['symlinked project ancestor targets input', async (scratch) => {
+      const input = join(scratch, 'input');
+      const alias = join(scratch, 'input-prefix-alias');
+      await mkdir(input);
+      await writeFile(join(input, 'source.txt'), 'immutable\n');
+      await symlink(input, alias, 'dir');
+      return { input, project: join(alias, 'nested-project'), protectedRoot: input };
+    }],
+    ['input is nested inside project', async (scratch) => {
+      const project = join(scratch, 'project');
+      const input = join(project, 'input');
+      await mkdir(input, { recursive: true });
+      await writeFile(join(input, 'source.txt'), 'immutable\n');
+      return { input, project, protectedRoot: project };
+    }],
+    ['project output prefix symlink targets input', async (scratch) => {
+      const project = join(scratch, 'project');
+      const input = join(scratch, 'input');
+      await mkdir(project);
+      await mkdir(input);
+      await writeFile(join(input, 'source.txt'), 'immutable\n');
+      await symlink(input, join(project, 'cache'), 'dir');
+      return { input, project, protectedRoot: scratch };
+    }],
+  ];
+  for (const [name, arrange] of cases) {
+    await t.test(name, async () => {
+      const scratch = await mkdtemp(join(tmpdir(), 'hyperframes-ingest-overlap-'));
+      const { input, project, protectedRoot } = await arrange(scratch);
+      const before = await snapshot(protectedRoot);
+      const result = await runCli('ingest_media.mjs', ['--project', project, '--input', input]);
+      assert.equal(result.code, 1, result.stderr || result.stdout);
+      assert.equal(JSON.parse(result.stdout).error.code, 'E_PROJECT_INPUT_OVERLAP');
+      assert.deepEqual(await snapshot(protectedRoot), before);
+    });
+  }
 });

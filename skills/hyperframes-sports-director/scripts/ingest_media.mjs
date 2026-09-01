@@ -16,8 +16,9 @@ async function nextRevision(path) {
 
 export async function ingestMedia(options) {
   const { project, input } = await resolveRoots(options.project, options.input);
+  const artifactPath = projectPath(project, 'analysis/MEDIA_INDEX.json', input);
+  const registryPath = projectPath(project, 'cache/source-registry.json', input);
   const records = await buildMediaRecords(input);
-  const artifactPath = projectPath(project, 'analysis/MEDIA_INDEX.json');
   const document = {
     $schema: 'https://hyperframes.local/schemas/media-index.schema.json',
     schemaVersion: '1.0.0',
@@ -38,7 +39,7 @@ export async function ingestMedia(options) {
     inputRoot: input,
     entries: records.map(({ mediaId, sourceDigest, sourcePath }) => ({ mediaId, sourceDigest, sourcePath })),
   };
-  await writeJsonAtomic(projectPath(project, 'cache/source-registry.json'), registry);
+  await writeJsonAtomic(registryPath, registry);
   await writeJsonAtomic(artifactPath, document);
   return {
     ok: true,

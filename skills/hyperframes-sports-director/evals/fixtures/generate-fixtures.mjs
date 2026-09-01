@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 function run(command, args) {
@@ -20,6 +20,28 @@ async function ffmpeg(args) {
   await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args]);
 }
 
+async function addExifOrientation(path, orientation) {
+  const jpeg = await readFile(path);
+  if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error('fixture JPEG has no SOI marker');
+  const payload = Buffer.alloc(32);
+  payload.write('Exif\0\0', 0, 'binary');
+  payload.write('II', 6, 'ascii');
+  payload.writeUInt16LE(42, 8);
+  payload.writeUInt32LE(8, 10);
+  payload.writeUInt16LE(1, 14);
+  payload.writeUInt16LE(0x0112, 16);
+  payload.writeUInt16LE(3, 18);
+  payload.writeUInt32LE(1, 20);
+  payload.writeUInt16LE(orientation, 24);
+  payload.writeUInt32LE(0, 28);
+  const app1 = Buffer.alloc(payload.length + 4);
+  app1[0] = 0xff;
+  app1[1] = 0xe1;
+  app1.writeUInt16BE(payload.length + 2, 2);
+  payload.copy(app1, 4);
+  await writeFile(path, Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]));
+}
+
 export async function generateFixtures(root) {
   const nested = join(root, 'nested');
   await mkdir(nested, { recursive: true });
@@ -38,7 +60,9 @@ export async function generateFixtures(root) {
     '-metadata', 'creation_time=2026-09-01T12:01:00Z', join(root, '20260901T120100Z-rotated.mov'),
   ]);
 
-  await ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=1', '-frames:v', '1', join(root, '20260901T120200Z-photo.jpg')]);
+  const orientedJpeg = join(root, '20260901T120200Z-photo.jpg');
+  await ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=1', '-frames:v', '1', orientedJpeg]);
+  await addExifOrientation(orientedJpeg, 6);
   await ffmpeg(['-f', 'lavfi', '-i', 'color=c=0x336699:size=120x160:rate=1', '-frames:v', '1', join(nested, '20260901T120300Z-portrait.png')]);
   await ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=144x96:rate=1', '-frames:v', '1', '-c:v', 'libwebp', join(root, '20260901T120400Z-photo.webp')]);
   await ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=1000:sample_rate=48000:duration=1', '-c:a', 'pcm_s16le', join(root, '20260901T120500Z-tone.wav')]);

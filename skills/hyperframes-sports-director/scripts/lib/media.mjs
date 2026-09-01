@@ -31,6 +31,21 @@ function isWithin(path, root) {
   return child === '' || (!child.startsWith(`..${sep}`) && child !== '..' && !isAbsolute(child));
 }
 
+function canonicalizeExistingPrefix(path) {
+  let cursor = resolve(path);
+  const suffix = [];
+  while (true) {
+    try {
+      return resolve(realpathSync(cursor), ...suffix.reverse());
+    } catch {
+      const parent = dirname(cursor);
+      if (parent === cursor) throw new MediaError('E_PATH_CANONICAL', `cannot canonicalize path: ${path}`);
+      suffix.push(basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
 export async function resolveRoots(projectRoot, inputRoot) {
   if (!projectRoot || !inputRoot) throw new MediaError('E_OPTIONS', 'project and input are required');
   let input;
@@ -39,8 +54,10 @@ export async function resolveRoots(projectRoot, inputRoot) {
   } catch (error) {
     throw new MediaError('E_INPUT_UNREADABLE', `input root is not readable: ${error.message}`);
   }
-  const project = resolve(projectRoot);
-  if (isWithin(project, input)) throw new MediaError('E_PROJECT_INSIDE_INPUT', 'project root must be outside the immutable input root');
+  const project = canonicalizeExistingPrefix(projectRoot);
+  if (isWithin(project, input) || isWithin(input, project)) {
+    throw new MediaError('E_PROJECT_INPUT_OVERLAP', 'canonical project and immutable input roots must not contain each other');
+  }
   return { project, input };
 }
 
@@ -109,12 +126,17 @@ export async function buildMediaRecords(inputRoot) {
   });
 }
 
-export function projectPath(projectRoot, portablePath) {
+export function projectPath(projectRoot, portablePath, inputRoot) {
   if (typeof portablePath !== 'string' || isAbsolute(portablePath)) throw new MediaError('E_PATH_ESCAPE', 'project path must be relative');
-  const root = resolve(projectRoot);
-  const path = resolve(root, portablePath);
-  if (!isWithin(path, root)) throw new MediaError('E_PATH_ESCAPE', 'path escapes project root');
-  return path;
+  const root = canonicalizeExistingPrefix(projectRoot);
+  const lexicalPath = resolve(root, portablePath);
+  if (!isWithin(lexicalPath, root)) throw new MediaError('E_PATH_ESCAPE', 'path escapes project root');
+  const canonicalPath = canonicalizeExistingPrefix(lexicalPath);
+  if (inputRoot && isWithin(canonicalPath, canonicalizeExistingPrefix(inputRoot))) {
+    throw new MediaError('E_PROJECT_INPUT_OVERLAP', 'project output resolves inside the immutable input root');
+  }
+  if (!isWithin(canonicalPath, root)) throw new MediaError('E_PATH_ESCAPE', 'path escapes canonical project root through a symlink');
+  return canonicalPath;
 }
 
 export async function writeJsonAtomic(path, value, mode = 0o600) {
@@ -134,7 +156,7 @@ export async function readSourceRegistry(projectRoot, inputRoot) {
   const { project, input } = await resolveRoots(projectRoot, inputRoot);
   let registry;
   try {
-    registry = JSON.parse(await readFile(projectPath(project, 'cache/source-registry.json'), 'utf8'));
+    registry = JSON.parse(await readFile(projectPath(project, 'cache/source-registry.json', input), 'utf8'));
   } catch (error) {
     throw new MediaError('E_SOURCE_REGISTRY', `source registry is unavailable: ${error.message}`);
   }

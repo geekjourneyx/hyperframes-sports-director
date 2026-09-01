@@ -90,6 +90,27 @@ test('build_proxies creates watermarked timestamp-preserving analysis media with
   const still = JSON.parse(stillProbe.stdout).streams[0];
   assert.equal(still.width / still.height, 120 / 160);
 
+  const oriented = document.media.find((entry) => entry.captureTimestamp === '2026-09-01T12:02:00.000Z');
+  const orientedProbe = await run('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(project, oriented.proxy.path)]);
+  assert.equal(orientedProbe.code, 0, orientedProbe.stderr);
+  const orientedStill = JSON.parse(orientedProbe.stdout).streams[0];
+  assert.equal(orientedStill.width * oriented.stillDisplay.displayHeight, orientedStill.height * oriented.stillDisplay.displayWidth);
+  const clockwiseReference = join(scratch, 'expected-clockwise.webp');
+  const reference = await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y', '-noautorotate',
+    '-i', join(input, '20260901T120200Z-photo.jpg'), '-frames:v', '1',
+    '-vf', `transpose=clock,scale=${orientedStill.width}:${orientedStill.height}`,
+    '-c:v', 'libwebp', '-quality', '78', clockwiseReference,
+  ]);
+  assert.equal(reference.code, 0, reference.stderr);
+  const orientationProof = await run('ffmpeg', [
+    '-hide_banner', '-v', 'info', '-i', clockwiseReference, '-i', join(project, oriented.proxy.path),
+    '-lavfi', 'ssim', '-f', 'null', '-',
+  ]);
+  assert.equal(orientationProof.code, 0, orientationProof.stderr);
+  const orientationSsim = /All:([0-9.]+)/.exec(orientationProof.stderr);
+  assert.ok(orientationSsim && Number(orientationSsim[1]) > 0.99, orientationProof.stderr);
+
   assert.throws(() => assertFinalSource(join(project, 'media/proxies', 'media-test.mp4'), project), (error) => error.code === 'E_PROXY_FINAL_SOURCE');
   assert.throws(() => assertFinalSource(join(project, 'review/probe', 'media-test.webp'), project), (error) => error.code === 'E_ANALYSIS_DERIVATIVE_FINAL_SOURCE');
   assert.throws(() => assertFinalSource(join(project, 'analysis/evidence', 'frame.webp'), project), (error) => error.code === 'E_ANALYSIS_DERIVATIVE_FINAL_SOURCE');

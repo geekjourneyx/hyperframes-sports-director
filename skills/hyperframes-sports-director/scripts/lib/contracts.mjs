@@ -276,6 +276,29 @@ function checkProbeReviewPaths(value, schema, errors) {
     if (!REVIEW_EXTENSIONS[media.mediaType].has(extension)) {
       addSemantic(errors, schema, 'E_REVIEW_PATH', `/media/${index}/reviewPath`, 'review path must use the mediaId basename in review/probe with an allowed media extension');
     }
+    if (media.mediaType === 'image') {
+      const stream = media.streams.find(({ type }) => type === 'video');
+      const display = media.stillDisplay;
+      const exifTransforms = {
+        1: [0, false], 2: [0, true], 3: [180, false], 4: [180, true],
+        5: [90, true], 6: [90, false], 7: [270, true], 8: [270, false],
+      };
+      const swapsAxes = display?.rotationDegrees === 90 || display?.rotationDegrees === 270;
+      const geometryMatches = stream && display
+        && display.encodedWidth === stream.width && display.encodedHeight === stream.height
+        && display.displayWidth === (swapsAxes ? stream.height : stream.width)
+        && display.displayHeight === (swapsAxes ? stream.width : stream.height);
+      const exifTransform = exifTransforms[display?.exifOrientation];
+      const sourceMatches = display
+        && ((display.orientationSource === 'exif' && exifTransform
+            && display.rotationDegrees === exifTransform[0] && display.mirrored === exifTransform[1])
+          || (display.orientationSource !== 'exif' && display.exifOrientation === null));
+      if (!geometryMatches || !sourceMatches) {
+        addSemantic(errors, schema, 'E_STILL_DISPLAY', `/media/${index}/stillDisplay`, 'still display orientation must bind its encoded stream geometry and metadata source');
+      }
+    } else if (media.stillDisplay !== undefined) {
+      addSemantic(errors, schema, 'E_STILL_DISPLAY', `/media/${index}/stillDisplay`, 'only still images may declare still display orientation');
+    }
     if (media.proxy !== undefined && media.proxy !== null) {
       const expectedPath = media.mediaType === 'image'
         ? `review/probe/${media.mediaId}.webp`

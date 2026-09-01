@@ -296,6 +296,27 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
     stampIntegrity(invalidProxy);
     assertInvalid(schemas.probe, invalidProxy, 'proxy lineage and time mapping cannot diverge from the normalized source');
   }
+  const stillProbe = clone(probe);
+  stillProbe.media[0].mediaType = 'image';
+  stillProbe.media[0].reviewPath = 'review/probe/media-001.webp';
+  stillProbe.media[0].durationSeconds = null;
+  stillProbe.media[0].streams[0].width = 160;
+  stillProbe.media[0].streams[0].height = 90;
+  stillProbe.media[0].stillDisplay = {
+    orientationSource: 'exif', exifOrientation: 6, rotationDegrees: 90, mirrored: false,
+    encodedWidth: 160, encodedHeight: 90, displayWidth: 90, displayHeight: 160,
+  };
+  stampIntegrity(stillProbe);
+  assertValid(schemas.probe, stillProbe, 'still display geometry binds EXIF orientation to encoded dimensions');
+  for (const mutate of [
+    (value) => { value.media[0].stillDisplay.displayWidth = 160; },
+    (value) => { value.media[0].stillDisplay.exifOrientation = null; },
+  ]) {
+    const invalidStill = clone(stillProbe);
+    mutate(invalidStill);
+    stampIntegrity(invalidStill);
+    assertInvalid(schemas.probe, invalidStill, 'still display geometry and EXIF source must remain consistent');
+  }
   const absoluteProbe = clone(probe);
   absoluteProbe.media[0].reviewPath = '/Users/alice/private-ride.mov';
   assertInvalid(schemas.probe, absoluteProbe, 'probe cannot expose an absolute input path');
