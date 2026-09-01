@@ -27,8 +27,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 7 — segmentation and shot-understanding evidence | Complete | `d24be57065ccd6fadb9dbd39d7b2b7ce7ed1ee29` | Mechanical segmentation, review-safe evidence, contact sheets, and strict Agent-authored shot validation are accepted; do not recreate. |
 | 8 — activity normalization, synchronization, and privacy | Complete | `a916193cf66b7a9da4c999da713b3a20525c9ae6` | Normalized activity truth, synchronization, coverage authority, transactional writes, and privacy-trimmed route derivatives are accepted; do not recreate. |
 | 9 — editorial timeline and approval rough cut | Complete | `eb6e47d74a3b8a462065123cfc447a33bc8fa361` | Authoritative phase-aware timeline validation, continuity/audio policies, and closed proxy rough-cut evidence are accepted; do not recreate. |
-| 10 — local director workbench and one approval | Next | — | Continue the isolated workbench implementation, then integrate it onto this accepted Task 9 checkpoint before review and acceptance. |
-| 11–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 10 — local director workbench and one approval | Complete | `4bfca059bd742a784149c47f30c81d37f6db2c74` | Local workbench, immutable review bundle, localhost session/approval transaction, and privacy-safe SVG direction prototypes are accepted; do not recreate. |
+| 11 — lock approved direction and enforce repair boundaries | Next | — | Consume the one current hash-bound approval and transactionally freeze exactly one design system and one independent Look profile before production visual generation. |
+| 12–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
