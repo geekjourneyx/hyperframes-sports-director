@@ -4,6 +4,7 @@ dist/
 coverage/
 *.log
 *-workspace/
+hyperframes-sports-director-workspace/
 cache/
 
 # Project media created from private source material.

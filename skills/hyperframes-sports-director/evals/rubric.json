@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.0",
+  "evaluation_input": {
+    "prompt_path": "prompt",
+    "evaluated_output_path": "evaluated_output",
+    "rule_language": "Conditions are JSON boolean trees (all, any, not) over closed path/operator/expected atoms implemented by scripts/lib/rubric_evaluator.mjs. A criterion earns full points only when every check is true; otherwise it earns the first matching partial_credit award_points, or zero.",
+    "canonical_generated_asset_ownership": {
+      "path": "evaluated_output.asset_manifest.generated_assets[*]",
+      "required_fields": ["provenance", "crop", "motion_owner"],
+      "motion_map_cross_reference": "evaluated_output.motion_map.generated_asset_ids references generated_assets[*].id; ownership remains on the asset-manifest record."
+    }
+  },
+  "scoring": {
+    "maximum_score": 100,
+    "passing_score": 90,
+    "rounding": "round-half-up",
+    "na_denominator_normalization": true,
+    "formula": "score = round-half-up(100 * sum(awarded_points for applicable criteria) / sum(points for applicable criteria)); a hard failure returns fail regardless of score; zero applicable points returns 0."
+  },
+  "applicability": {
+    "activation_source": "prompt-or-evaluated-output",
+    "dimensions": [
+      {
+        "id": "speech",
+        "prompt_signals": ["speech", "dialogue", "interview", "narration", "voice memo", "讲话", "采访", "旁白"],
+        "output_signals": ["evaluated_output.audio.speech_claims", "evaluated_output.timeline.speech_segments"]
+      },
+      {
+        "id": "music",
+        "prompt_signals": ["music", "background music", "soundtrack", "音乐", "配乐"],
+        "output_signals": ["evaluated_output.audio.music_claims", "evaluated_output.timeline.music_segments"]
+      },
+      {
+        "id": "generated-visuals",
+        "prompt_signals": ["image gen", "generated", "route visual", "transition visual", "生成", "路线视觉", "转场视觉"],
+        "output_signals": ["evaluated_output.assets.generated", "evaluated_output.motion_map.generated_asset_ids"]
+      },
+      {
+        "id": "activity-data",
+        "prompt_signals": ["fit", "gpx", "gps", "activity data", "lap data", "ride file", "数据", "轨迹"],
+        "output_signals": ["evaluated_output.activity.claims", "evaluated_output.activity.metrics"]
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "input-provenance",
+      "points": 15,
+      "applicability": {"mode": "always"},
+      "checks": [
+        {"path": "evaluated_output.asset_manifest.input_assets", "operator": "exists-and-nonempty", "expected": true},
+        {"path": "evaluated_output.asset_manifest.input_assets[*].provenance", "operator": "every-in-set", "expected": "original-or-explicit-derivative"}
+      ],
+      "partial_credit": [
+        {"award_points": 8, "condition": {"all": [{"path": "evaluated_output.asset_manifest.input_assets", "operator": "exists-and-nonempty", "expected": true}, {"path": "evaluated_output.asset_manifest.input_assets[*].provenance", "operator": "some-in-set", "expected": "original-or-explicit-derivative"}]}}
+      ]
+    },
+    {
+      "id": "shot-evidence",
+      "points": 10,
+      "applicability": {"mode": "always"},
+      "checks": [
+        {"path": "evaluated_output.timeline.shots[*].source_asset_id", "operator": "every-references", "expected": "evaluated_output.asset_manifest.input_assets[*].id"},
+        {"path": "evaluated_output.timeline.shots", "operator": "exists-and-nonempty", "expected": true}
+      ],
+      "partial_credit": [
+        {"award_points": 5, "condition": {"all": [{"path": "evaluated_output.timeline.shots", "operator": "exists-and-nonempty", "expected": true}, {"path": "evaluated_output.timeline.shots[*].source_asset_id", "operator": "some-references", "expected": "evaluated_output.asset_manifest.input_assets[*].id"}]}}
+      ]
+    },
+    {
+      "id": "original-backed-timeline",
+      "points": 10,
+      "applicability": {"mode": "always"},
+      "checks": [
+        {"path": "evaluated_output.timeline.shots[*].role", "operator": "none-equals", "expected": "proxy-final-source"},
+        {"path": "evaluated_output.timeline.render_source", "operator": "equals", "expected": "original-backed"}
+      ],
+      "partial_credit": [
+        {"award_points": 5, "condition": {"path": "evaluated_output.timeline.render_source", "operator": "equals", "expected": "original-backed"}}
+      ]
+    },
+    {
+      "id": "audio-continuity",
+      "points": 10,
+      "applicability": {"mode": "any-dimension-active", "dimensions": ["speech", "music"]},
+      "checks": [
+        {"path": "evaluated_output.audio.continuity_plan", "operator": "exists-and-nonempty", "expected": true},
+        {"path": "evaluated_output.audio.speech_claims[*].source_asset_id", "operator": "every-references", "expected": "evaluated_output.asset_manifest.input_assets[*].id"},
+        {"path": "evaluated_output.audio.music_claims[*].provenance", "operator": "every-in-set", "expected": "source-or-licensed"}
+      ],
+      "partial_credit": [
+        {"award_points": 5, "condition": {"path": "evaluated_output.audio.continuity_plan", "operator": "exists-and-nonempty", "expected": true}}
+      ]
+    },
+    {
+      "id": "null-or-unavailable-data",
+      "points": 12,
+      "applicability": {"mode": "dimension-active", "dimension": "activity-data"},
+      "checks": [
+        {"path": "evaluated_output.activity.metrics[*].value", "operator": "missing-source-is-null-or-status-unavailable", "expected": "null-or-status-unavailable"},
+        {"path": "evaluated_output.activity.claims[*].source_asset_id", "operator": "every-references-or-unavailable", "expected": "evaluated_output.asset_manifest.input_assets[*].id"}
+      ],
+      "partial_credit": [
+        {"award_points": 6, "condition": {"path": "evaluated_output.activity.status", "operator": "equals", "expected": "unavailable"}}
+      ]
+    },
+    {
+      "id": "generated-visual-provenance",
+      "points": 12,
+      "applicability": {"mode": "dimension-active", "dimension": "generated-visuals"},
+      "checks": [
+        {"path": "evaluated_output.asset_manifest.generated_assets[*].provenance", "operator": "every-exists-and-nonempty", "expected": true},
+        {"path": "evaluated_output.asset_manifest.generated_assets[*].documentary_status", "operator": "every-equals", "expected": "interpretive-not-documentary"}
+      ],
+      "partial_credit": [
+        {"award_points": 6, "condition": {"path": "evaluated_output.asset_manifest.generated_assets[*].provenance", "operator": "some-exists-and-nonempty", "expected": true}}
+      ]
+    },
+    {
+      "id": "generated-visual-motion-ownership",
+      "points": 8,
+      "applicability": {"mode": "dimension-active", "dimension": "generated-visuals"},
+      "checks": [
+        {"path": "evaluated_output.asset_manifest.generated_assets[*].crop", "operator": "every-exists-and-nonempty", "expected": true},
+        {"path": "evaluated_output.asset_manifest.generated_assets[*].motion_owner", "operator": "every-exists-and-nonempty", "expected": true},
+        {"path": "evaluated_output.motion_map.generated_asset_ids[*]", "operator": "every-references", "expected": "evaluated_output.asset_manifest.generated_assets[*].id"}
+      ],
+      "partial_credit": [
+        {"award_points": 4, "condition": {"all": [{"path": "evaluated_output.asset_manifest.generated_assets[*].crop", "operator": "every-exists-and-nonempty", "expected": true}, {"path": "evaluated_output.asset_manifest.generated_assets[*].motion_owner", "operator": "every-exists-and-nonempty", "expected": true}]}}
+      ]
+    },
+    {
+      "id": "copy-requirements",
+      "points": 6,
+      "applicability": {"mode": "prompt-or-output-copy-requested", "prompt_signals": ["title", "chapter", "copy", "文案", "标题"], "output_signals": ["evaluated_output.copy"]},
+      "checks": [
+        {"path": "evaluated_output.copy", "operator": "exists-and-nonempty", "expected": true},
+        {"path": "evaluated_output.copy", "operator": "matches-requested-fields", "expected": "prompt"}
+      ],
+      "partial_credit": [
+        {"award_points": 3, "condition": {"path": "evaluated_output.copy", "operator": "exists-and-nonempty", "expected": true}}
+      ]
+    },
+    {
+      "id": "final-mp4-inspection",
+      "points": 12,
+      "applicability": {"mode": "always"},
+      "checks": [
+        {"path": "evaluated_output.final_mp4.path", "operator": "file-exists-with-extension", "expected": ".mp4"},
+        {"path": "evaluated_output.final_mp4.inspection", "operator": "equals", "expected": "ffprobe-or-equivalent-plus-decoded-samples"},
+        {"path": "evaluated_output.final_mp4.decoded_sample_times", "operator": "count-at-least", "expected": 5},
+        {"path": "evaluated_output.final_mp4.audio_stream_check", "operator": "equals", "expected": "present-and-decodable"}
+      ],
+      "partial_credit": [
+        {"award_points": 8, "condition": {"path": "evaluated_output.final_mp4.probe_summary", "operator": "exists-and-nonempty", "expected": true}}
+      ]
+    },
+    {
+      "id": "delivery-constraints",
+      "points": 5,
+      "applicability": {"mode": "always"},
+      "checks": [
+        {"path": "evaluated_output.final_mp4", "operator": "matches-requested-delivery-constraints", "expected": "prompt"}
+      ],
+      "partial_credit": [
+        {"award_points": 2, "condition": {"path": "evaluated_output.final_mp4.path", "operator": "file-exists-with-extension", "expected": ".mp4"}}
+      ]
+    }
+  ],
+  "hard_failures": [
+    {
+      "id": "fabricated-metrics",
+      "when": "Any activity metric or claim lacks a source asset and is neither null nor explicitly unavailable.",
+      "condition": {"path": "evaluated_output.activity.metrics[*]", "operator": "any-fabricated-or-zero-filled-missing-source", "expected": true},
+      "result": "fail"
+    },
+    {
+      "id": "proxy-as-final-source",
+      "when": "A proxy is declared or used as the final render source rather than an original-backed source.",
+      "condition": {"any": [{"path": "evaluated_output.timeline.render_source", "operator": "equals", "expected": "proxy"}, {"path": "evaluated_output.timeline.shots[*].role", "operator": "any-equals", "expected": "proxy-final-source"}]},
+      "result": "fail"
+    },
+    {
+      "id": "generated-imagery-as-documentary",
+      "when": "Generated imagery is represented as captured documentary evidence.",
+      "condition": {"path": "evaluated_output.asset_manifest.generated_assets[*].documentary_status", "operator": "any-equals", "expected": "documentary-evidence"},
+      "result": "fail"
+    },
+    {
+      "id": "generated-asset-ownership",
+      "when": "Any generated asset lacks provenance, a crop decision, or a named motion owner.",
+      "condition": {"path": "evaluated_output.asset_manifest.generated_assets[*]", "operator": "any-missing-required-fields", "expected": ["provenance", "crop", "motion_owner"]},
+      "required_fields": ["provenance", "crop", "motion_owner"],
+      "result": "fail"
+    },
+    {
+      "id": "missing-final-mp4-inspection",
+      "when": "The final MP4 lacks nonempty probe metadata, five valid decoded visual samples, a decodable audio stream, or the required inspection method.",
+      "condition": {"path": "evaluated_output.final_mp4", "operator": "invalid-final-mp4-inspection", "expected": {"required_fields": ["probe_summary", "decoded_sample_times", "audio_stream_check"], "inspection": "ffprobe-or-equivalent-plus-decoded-samples", "minimum_decoded_samples": 5, "audio_stream_check": "present-and-decodable"}},
+      "required_fields": ["probe_summary", "decoded_sample_times", "audio_stream_check"],
+      "result": "fail"
+    }
+  ]
+}
