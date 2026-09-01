@@ -94,6 +94,27 @@ function renderCandidateTab(candidate, index) {
   return `<button class="candidate-tab" type="button" data-candidate-tab="${escapeHtml(candidate.candidateId)}" aria-selected="${index === 0}"><span>Direction ${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(candidate.title)}</strong></button>`;
 }
 
+function renderCandidateStoryDetail(candidate, index, brief) {
+  const active = index === 0 ? ' is-active' : '';
+  return `<section class="candidate-detail candidate-story-detail${active}" data-candidate-detail="${escapeHtml(candidate.candidateId)}">
+  <div class="story-columns">${candidate.storyStructure.map((chapter, chapterIndex) => `<article class="story-column"><span class="section-label">0${chapterIndex + 1}</span><h3>${escapeHtml(chapter)}</h3><p>${escapeHtml(brief.story.emphasis[chapterIndex] ?? 'Editorial beat held by current shot evidence.')}</p></article>`).join('')}</div>
+</section>`;
+}
+
+function renderCandidateRailDetail(candidate, index) {
+  const active = index === 0 ? ' is-active' : '';
+  const components = [...new Set(candidate.componentPlan.components)];
+  const heroes = [...new Set(candidate.componentPlan.heroAssets)];
+  return `<div class="candidate-detail candidate-rail-detail${active}" data-candidate-detail="${escapeHtml(candidate.candidateId)}">
+    <section class="rail-section"><h3>STORY ARC</h3><ul class="rail-list">${list(candidate.storyStructure)}</ul></section>
+    <section class="rail-section"><h3>VISUAL WORLD</h3><p class="rail-copy">${escapeHtml(candidate.visualWorldPlan.statement)}</p><ul class="rail-list">${list(candidate.visualWorldPlan.plannedAssets)}</ul></section>
+    <section class="rail-section"><h3>COMPONENT / HERO PLAN</h3><p class="rail-copy">Components</p><ul class="rail-list">${list(components)}</ul><p class="rail-copy">Hero</p><ul class="rail-list">${list(heroes)}</ul></section>
+    <section class="rail-section"><h3>LAYOUT PROOF</h3><ul class="rail-list">${list(candidate.layoutProofs.map((path) => basename(path)))}</ul></section>
+    <section class="rail-section"><h3>MOTION STORYBOARD</h3><ul class="rail-list">${list(candidate.motionStoryboard.map((path) => basename(path)))}</ul></section>
+    <section class="rail-section"><h3>RISKS</h3><ul class="rail-list risk-list">${list(candidate.risks)}</ul></section>
+  </div>`;
+}
+
 function renderKeyframe(frame, index) {
   return `<figure class="keyframe"><img src="${reviewUrl(frame.path)}" alt="Review-safe key frame ${index + 1}"><figcaption><span>${escapeHtml(frame.frameId)}</span><span>${compactTime(frame.sourceTimeSeconds)}</span></figcaption></figure>`;
 }
@@ -112,9 +133,6 @@ function renderContent(model) {
   const active = model.proposals.candidates[0];
   const total = Math.max(...model.timeline.items.map(({ destinationOutSeconds }) => destinationOutSeconds), 1);
   const stageIndex = STAGES.indexOf(model.state.state);
-  const components = [...new Set(active.componentPlan.components)];
-  const heroes = [...new Set(active.componentPlan.heroAssets)];
-  const allRisks = [...new Set(model.proposals.candidates.flatMap(({ risks }) => risks))];
   return `<main class="workbench-shell">
   <div class="director-deck">
     <header class="topline"><div class="wordmark"><span class="wordmark-mark"></span><span>HyperFrames / Director Workbench</span></div><span class="gate-stamp">Gate <strong>DIRECTOR REVIEW</strong> · One approval</span></header>
@@ -125,21 +143,16 @@ function renderContent(model) {
       <div class="keyframe-track">${model.keyFrames.map(renderKeyframe).join('')}</div>
       <div class="edit-timeline"><span class="section-label">SHOT LEDGER / ROUGH CUT</span><div class="timeline-ruler"><span>00:00</span><span>01</span><span>02</span><span>03</span><span>04</span><span>${compactTime(total)}</span></div><div class="timeline-track">${model.timeline.items.map((item) => renderTimelineItem(item, total)).join('')}</div><div class="shot-strip">${model.shots.map((shot) => `<span><strong>${escapeHtml(shot.shotId)}</strong>${escapeHtml(`${shot.cameraRole.toUpperCase()} / ${shot.actionRole.toUpperCase()}`)} · ${Math.round(shot.confidence * 100)}%</span>`).join('')}</div></div>
       <a class="rough-cut-link" href="${reviewUrl(model.roughCut.path)}">Open proxy rough cut</a>
-      <div class="story-columns">${active.storyStructure.map((chapter, index) => `<article class="story-column"><span class="section-label">0${index + 1}</span><h3>${escapeHtml(chapter)}</h3><p>${escapeHtml(model.brief.story.emphasis[index] ?? 'Editorial beat held by current shot evidence.')}</p></article>`).join('')}</div>
+      ${model.proposals.candidates.map((candidate, index) => renderCandidateStoryDetail(candidate, index, model.brief)).join('\n')}
     </section>
   </div>
   <aside class="production-rail">
     <div class="rail-kicker"><span>DIRECTOR REVIEW</span><span>Rev ${model.proposals.revision}</span></div>
     <ol class="progress-list">${STAGES.map((stage, index) => `<li class="${index < stageIndex ? 'is-complete' : index === stageIndex ? 'is-current' : ''}">${escapeHtml(stage.replaceAll('_', ' '))}</li>`).join('')}</ol>
     <section class="rail-section"><h3>BRIEF</h3><h2>${escapeHtml(model.brief.copy.title ?? 'Untitled journey')}</h2><p class="rail-copy">${escapeHtml(model.brief.story.tone ?? 'observational')} · ${model.brief.duration.targetSeconds}s · ${escapeHtml(model.brief.story.pacing)}</p></section>
-    <section class="rail-section"><h3>STORY ARC</h3><ul class="rail-list">${list(active.storyStructure)}</ul></section>
     <section class="rail-section"><h3>LOCAL MUSIC</h3><p class="rail-copy">${escapeHtml(active.musicPlan.mode)} · ${escapeHtml(active.musicPlan.trackIds.join(', ') || 'No track')}</p></section>
-    <section class="rail-section"><h3>VISUAL WORLD</h3><p class="rail-copy">${escapeHtml(active.visualWorldPlan.statement)}</p><ul class="rail-list">${list(active.visualWorldPlan.plannedAssets)}</ul></section>
-    <section class="rail-section"><h3>COMPONENT / HERO PLAN</h3><p class="rail-copy">Components</p><ul class="rail-list">${list(components)}</ul><p class="rail-copy">Hero</p><ul class="rail-list">${list(heroes)}</ul></section>
-    <section class="rail-section"><h3>LAYOUT PROOF</h3><ul class="rail-list">${list(active.layoutProofs.map((path) => basename(path)))}</ul></section>
-    <section class="rail-section"><h3>MOTION STORYBOARD</h3><ul class="rail-list">${list(active.motionStoryboard.map((path) => basename(path)))}</ul></section>
-    <section class="rail-section"><h3>RISKS</h3><ul class="rail-list risk-list">${list(allRisks)}</ul></section>
-    ${model.approvalAvailable ? `<section class="approval-zone"><span class="section-label">SINGLE APPROVAL GATE</span><p>Choose one complete direction. This records evidence only; design and Look lock remain a separate transaction.</p><button class="approve-button" type="button" data-approve>APPROVE THIS DIRECTION</button><div class="approval-result" data-approval-result aria-live="polite"></div></section>` : ''}
+    ${model.proposals.candidates.map(renderCandidateRailDetail).join('\n')}
+    ${model.approvalAvailable ? `<section class="approval-zone"><span class="section-label">SINGLE APPROVAL GATE</span><p>Choose one complete direction. This records evidence only; design and Look lock remain a separate transaction.</p><button class="approve-button" type="button" data-approve>Approve ${escapeHtml(active.title)}</button><div class="approval-result" data-approval-result aria-live="polite"></div></section>` : ''}
     <script type="application/json" data-displayed-digests>${JSON.stringify(model.displayedArtifactDigests).replaceAll('<', '\\u003c')}</script>
   </aside>
 </main>`;

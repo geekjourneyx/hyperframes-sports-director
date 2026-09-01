@@ -52,6 +52,8 @@ button, input { font: inherit; }
 .shot-strip span { display: inline-flex; gap: 8px; }
 .shot-strip strong { color: var(--hf-text-primary); font-weight: 400; }
 .story-columns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 34px; }
+.candidate-detail { display: none; }
+.candidate-detail.is-active { display: block; }
 .story-column { padding-top: 14px; border-top: 1px solid var(--hf-line); }
 .story-column h3 { margin: 8px 0; font: 400 18px/1 "HF Editorial", serif; text-transform: uppercase; }
 .story-column p, .rail-copy, .risk-list { color: var(--hf-text-secondary); font-size: 11px; line-height: 1.6; }

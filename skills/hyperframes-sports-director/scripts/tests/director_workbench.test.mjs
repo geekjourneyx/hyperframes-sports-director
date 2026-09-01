@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import vm from 'node:vm';
 
 import { computeArtifactDigest, validateArtifact } from '../lib/contracts.mjs';
 import {
@@ -108,6 +109,7 @@ function stateAt(state) {
 
 function candidate(id, title, accent) {
   const suffix = id.replace('candidate-', '');
+  const kinetic = suffix === 'b';
   return {
     candidateId: id,
     title,
@@ -128,15 +130,73 @@ function candidate(id, title, accent) {
     lookRevision: `look-${suffix}`,
     lookCandidate: { candidateId: id, treatment: suffix === 'a' ? 'mineral-cool' : 'warm-emulsion', grain: 'restrained' },
     typographyHierarchy: ['journeyTitle', 'chapterTitle', 'annotation'],
-    storyStructure: ['departure', 'effort', 'release'],
-    visualWorldPlan: { statement: `${title} uses mineral darkness and editorial restraint.`, plannedAssets: ['chapter-slate', 'route-thread'] },
-    componentPlan: { components: ['chapter-index', 'effort-marker'], heroAssets: ['summit-silhouette'] },
+    storyStructure: kinetic ? ['acceleration', 'compression', 'breakaway'] : ['departure', 'effort', 'release'],
+    visualWorldPlan: kinetic
+      ? { statement: `${title} turns switchback momentum into a paced editorial ledger.`, plannedAssets: ['turn-marker', 'cadence-thread'] }
+      : { statement: `${title} uses mineral darkness and editorial restraint.`, plannedAssets: ['chapter-slate', 'route-thread'] },
+    componentPlan: kinetic
+      ? { components: ['cadence-index', 'turn-marker'], heroAssets: ['switchback-silhouette'] }
+      : { components: ['chapter-index', 'effort-marker'], heroAssets: ['summit-silhouette'] },
     layoutProofs: [`review/workbench-assets/prototype-${id}-layout-001.svg`],
     motionStoryboard: [`review/workbench-assets/prototype-${id}-motion-001.svg`],
     assetPlan: { roles: ['journey_anchor', 'chapter_slate', 'effort_marker'], productionImageGenUsed: false },
     musicPlan: { mode: 'provided', trackIds: ['music-001'] },
-    risks: ['Protect the rider silhouette against dense forest frames.'],
+    risks: kinetic ? ['Keep the cadence ledger legible through rapid direction changes.'] : ['Protect the rider silhouette against dense forest frames.'],
     previewArtifactDigests: {},
+  };
+}
+
+function interactionFixture() {
+  const element = ({ dataset = {}, textContent = '', selected, active = false } = {}) => {
+    const listeners = new Map();
+    return {
+      dataset,
+      textContent,
+      attributes: new Map(selected === undefined ? [] : [['aria-selected', String(selected)]]),
+      classList: {
+        active,
+        toggle(name, value) { if (name === 'is-active') this.active = value; },
+        contains(name) { return name === 'is-active' && this.active; },
+      },
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      setAttribute(name, value) { this.attributes.set(name, String(value)); },
+      querySelector(selector) { return selector === 'strong' ? { textContent } : null; },
+      addEventListener(event, handler) { listeners.set(event, handler); },
+      click() { listeners.get('click')?.(); },
+    };
+  };
+  const tabs = [
+    element({ dataset: { candidateTab: 'candidate-a' }, textContent: 'MONUMENTAL QUIET', selected: true }),
+    element({ dataset: { candidateTab: 'candidate-b' }, textContent: 'KINETIC LEDGER', selected: false }),
+  ];
+  const stages = [
+    element({ dataset: { candidateStage: 'candidate-a' }, active: true }),
+    element({ dataset: { candidateStage: 'candidate-b' }, active: false }),
+  ];
+  const details = [
+    element({ dataset: { candidateDetail: 'candidate-a' }, active: true }),
+    element({ dataset: { candidateDetail: 'candidate-a' }, active: true }),
+    element({ dataset: { candidateDetail: 'candidate-b' }, active: false }),
+    element({ dataset: { candidateDetail: 'candidate-b' }, active: false }),
+  ];
+  const approval = element();
+  const label = element({ textContent: 'MONUMENTAL QUIET' });
+  const result = element();
+  return {
+    tabs, stages, details, approval, label,
+    document: {
+      querySelectorAll(selector) {
+        return selector === '[data-candidate-tab]' ? tabs
+          : selector === '[data-candidate-stage]' ? stages
+            : selector === '[data-candidate-detail]' ? details : [];
+      },
+      querySelector(selector) {
+        return selector === '[data-approve]' ? approval
+          : selector === '[data-selected-candidate-label]' ? label
+            : selector === '[data-approval-result]' ? result
+              : selector === '[data-displayed-digests]' ? { textContent: '{}' } : null;
+      },
+    },
   };
 }
 
@@ -350,7 +410,7 @@ test('workbench is a deterministic escaped evidence view with isolated candidate
   const htmlA = renderWorkbenchHtml(first);
   const htmlB = renderWorkbenchHtml(second);
   assert.equal(htmlA, htmlB);
-  for (const copy of ['THE LONG CLIMB', 'DIRECTOR REVIEW', 'KEY FRAMES', 'SHOT LEDGER', 'ROUGH CUT', 'STORY ARC', 'LOCAL MUSIC', 'VISUAL WORLD', 'COMPONENT / HERO PLAN', 'LAYOUT PROOF', 'MOTION STORYBOARD', 'RISKS', 'APPROVE THIS DIRECTION']) {
+  for (const copy of ['THE LONG CLIMB', 'DIRECTOR REVIEW', 'KEY FRAMES', 'SHOT LEDGER', 'ROUGH CUT', 'STORY ARC', 'LOCAL MUSIC', 'VISUAL WORLD', 'COMPONENT / HERO PLAN', 'LAYOUT PROOF', 'MOTION STORYBOARD', 'RISKS', 'Approve MONUMENTAL QUIET']) {
     assert.ok(htmlA.includes(copy), copy);
   }
   assert.ok(htmlA.includes('shot-001'));
@@ -380,6 +440,41 @@ test('workbench is a deterministic escaped evidence view with isolated candidate
   const safe = renderWorkbenchHtml(escaped);
   assert.ok(safe.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.equal(safe.includes('<img src=x'), false);
+});
+
+test('candidate selection reveals only the matching server-rendered detail and names the approval target', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const model = await buildWorkbenchModel(projectRoot);
+  const html = renderWorkbenchHtml(model);
+  assert.match(html, /candidate-story-detail is-active" data-candidate-detail="candidate-a"/);
+  assert.match(html, /candidate-rail-detail is-active" data-candidate-detail="candidate-a"/);
+  assert.match(html, /candidate-story-detail" data-candidate-detail="candidate-b"/);
+  assert.match(html, /candidate-rail-detail" data-candidate-detail="candidate-b"/);
+  assert.match(html, /departure/);
+  assert.match(html, /summit-silhouette/);
+  assert.match(html, /acceleration/);
+  assert.match(html, /switchback-silhouette/);
+  assert.match(html, /rapid direction changes/);
+  assert.equal((html.match(/data-candidate-detail="candidate-a"/g) ?? []).length, 2);
+  assert.equal((html.match(/data-candidate-detail="candidate-b"/g) ?? []).length, 2);
+  assert.match(html, /Same evidence · same copy · same density/);
+  assert.match(html, /LOCAL MUSIC/);
+
+  const fixture = interactionFixture();
+  const script = await readFile(new URL('../../assets/director-workbench/workbench.js', import.meta.url), 'utf8');
+  vm.runInNewContext(script, { document: fixture.document });
+  fixture.tabs[1].click();
+  assert.equal(fixture.stages[0].classList.contains('is-active'), false);
+  assert.equal(fixture.stages[1].classList.contains('is-active'), true);
+  assert.deepEqual(fixture.details.map((detail) => detail.classList.contains('is-active')), [false, false, true, true]);
+  assert.equal(fixture.approval.textContent, 'Approve KINETIC LEDGER');
+  assert.equal(fixture.label.textContent, 'KINETIC LEDGER');
+
+  fixture.tabs[0].click();
+  assert.equal(fixture.stages[0].classList.contains('is-active'), true);
+  assert.deepEqual(fixture.details.map((detail) => detail.classList.contains('is-active')), [true, true, false, false]);
+  assert.equal(fixture.approval.textContent, 'Approve MONUMENTAL QUIET');
+  assert.equal(fixture.label.textContent, 'MONUMENTAL QUIET');
 });
 
 test('workbench publishes a complete immutable asset bundle before replacing canonical HTML', async (t) => {

@@ -1,14 +1,19 @@
 (() => {
   const tabs = [...document.querySelectorAll('[data-candidate-tab]')];
   const stages = [...document.querySelectorAll('[data-candidate-stage]')];
+  const details = [...document.querySelectorAll('[data-candidate-detail]')];
   let selectedCandidateId = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true')?.dataset.candidateTab;
 
   function select(candidateId) {
     selectedCandidateId = candidateId;
     for (const tab of tabs) tab.setAttribute('aria-selected', String(tab.dataset.candidateTab === candidateId));
     for (const stage of stages) stage.classList.toggle('is-active', stage.dataset.candidateStage === candidateId);
+    for (const detail of details) detail.classList.toggle('is-active', detail.dataset.candidateDetail === candidateId);
+    const title = tabs.find((tab) => tab.dataset.candidateTab === candidateId)?.querySelector('strong')?.textContent ?? 'this direction';
     const button = document.querySelector('[data-approve]');
-    if (button) button.textContent = `Approve ${tabs.find((tab) => tab.dataset.candidateTab === candidateId)?.querySelector('strong')?.textContent ?? 'this direction'}`;
+    if (button) button.textContent = `Approve ${title}`;
+    const selectedLabel = document.querySelector('[data-selected-candidate-label]');
+    if (selectedLabel) selectedLabel.textContent = title;
   }
 
   for (const tab of tabs) tab.addEventListener('click', () => select(tab.dataset.candidateTab));
