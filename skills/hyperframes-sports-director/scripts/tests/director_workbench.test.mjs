@@ -35,6 +35,18 @@ function stamp(value) {
   return value;
 }
 
+function approvalLease({ pid, createdAt, expiresAt, ownerToken = 'a'.repeat(64) }) {
+  return stamp({ schemaVersion: '1.0.0', ownerToken, pid, createdAt, expiresAt, integrity: { digest: null, upstream: {} } });
+}
+
+async function installApprovalLease(projectRoot, lease, { malformed = false } = {}) {
+  const directory = join(projectRoot, 'cache/director-approval.lock');
+  await mkdir(directory, { mode: 0o700 });
+  await chmod(directory, 0o700);
+  await writeFile(join(directory, 'lease.json'), malformed ? '{"broken":true}\n' : `${JSON.stringify(lease, null, 2)}\n`, { mode: 0o600 });
+  return directory;
+}
+
 async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(stamp(value), null, 2)}\n`);
 }
@@ -472,6 +484,96 @@ test('approval uses one project-scoped exclusive transaction across revalidation
     () => recordDirectorApproval({ ...request, selectedCandidateId: 'candidate-b' }),
     (error) => error.code === 'E_APPROVAL_EXISTS',
   );
+});
+
+test('approval lock is an integrity-checked owner-only lease and ordinary write failure releases it', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const session = { id: 'session-lease-metadata', csrfToken: 'csrf-lease-metadata', expiresAt: '2026-09-01T12:05:00.000Z' };
+  await installSession(projectRoot, session);
+  const lockPath = join(projectRoot, 'cache/director-approval.lock');
+  await assert.rejects(() => recordDirectorApproval({
+    projectRoot, selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+    workbenchDigest: built.digest, sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+    beforeRename: async () => {
+      const leasePath = join(lockPath, 'lease.json');
+      assert.equal((await stat(lockPath)).mode & 0o777, 0o700);
+      assert.equal((await stat(leasePath)).mode & 0o777, 0o600);
+      const lease = JSON.parse(await readFile(leasePath, 'utf8'));
+      assert.equal(lease.pid, process.pid);
+      assert.match(lease.ownerToken, /^[0-9a-f]{64}$/);
+      assert.equal(lease.integrity.digest, computeArtifactDigest(lease));
+      assert.ok(Date.parse(lease.expiresAt) > Date.parse(lease.createdAt));
+      throw Object.assign(new Error('injected approval write failure'), { code: 'E_INJECTED_WRITE' });
+    },
+  }), (error) => error.code === 'E_INJECTED_WRITE');
+  await assert.rejects(() => stat(lockPath), { code: 'ENOENT' });
+});
+
+test('approval recovers only an expired integrity-valid abandoned lease whose owner is confirmed dead', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const session = { id: 'session-dead-lease-01', csrfToken: 'csrf-dead-lease', expiresAt: '2026-09-01T12:05:00.000Z' };
+  await installSession(projectRoot, session);
+  await installApprovalLease(projectRoot, approvalLease({
+    pid: 99_999_999, createdAt: '2026-09-01T10:00:00.000Z', expiresAt: '2026-09-01T11:00:00.000Z',
+  }));
+  const result = await recordDirectorApproval({
+    projectRoot, selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+    workbenchDigest: built.digest, sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+  });
+  assert.equal(result.approval.selectedCandidateId, 'candidate-a');
+  await assert.rejects(() => stat(join(projectRoot, 'cache/director-approval.lock')), { code: 'ENOENT' });
+});
+
+test('approval fails closed for expired live, malformed, and unowned leases', async (t) => {
+  const cases = [
+    {
+      code: 'E_APPROVAL_BUSY',
+      install: (projectRoot) => installApprovalLease(projectRoot, approvalLease({
+        pid: process.pid, createdAt: '2026-09-01T10:00:00.000Z', expiresAt: '2026-09-01T11:00:00.000Z',
+      })),
+    },
+    {
+      code: 'E_APPROVAL_LOCK_INVALID',
+      install: (projectRoot) => installApprovalLease(projectRoot, null, { malformed: true }),
+    },
+  ];
+  for (const entry of cases) {
+    const { projectRoot } = await compileAndReady(t);
+    const built = await buildDirectorWorkbench(projectRoot);
+    const model = await buildWorkbenchModel(projectRoot);
+    const session = { id: `session-${entry.code.toLowerCase().replaceAll('_', '-')}`, csrfToken: `csrf-${entry.code}`, expiresAt: '2026-09-01T12:05:00.000Z' };
+    await installSession(projectRoot, session);
+    const lockPath = await entry.install(projectRoot);
+    await assert.rejects(() => recordDirectorApproval({
+      projectRoot, selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+      workbenchDigest: built.digest, sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+    }), (error) => error.code === entry.code, entry.code);
+    assert.equal((await stat(lockPath)).isDirectory(), true, `${entry.code} lock must remain`);
+  }
+
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const session = { id: 'session-lease-owner-swap', csrfToken: 'csrf-lease-owner-swap', expiresAt: '2026-09-01T12:05:00.000Z' };
+  await installSession(projectRoot, session);
+  const lockPath = join(projectRoot, 'cache/director-approval.lock');
+  await assert.rejects(() => recordDirectorApproval({
+    projectRoot, selectedCandidateId: 'candidate-a', displayedArtifactDigests: model.displayedArtifactDigests,
+    workbenchDigest: built.digest, sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+    beforeRename: async () => {
+      const leasePath = join(lockPath, 'lease.json');
+      const lease = JSON.parse(await readFile(leasePath, 'utf8'));
+      lease.ownerToken = 'b'.repeat(64);
+      lease.integrity.digest = computeArtifactDigest(lease);
+      await writeFile(leasePath, `${JSON.stringify(lease, null, 2)}\n`, { mode: 0o600 });
+      throw Object.assign(new Error('ownership changed'), { code: 'E_INJECTED_OWNER_SWAP' });
+    },
+  }), (error) => error.code === 'E_APPROVAL_LOCK_OWNERSHIP');
+  assert.equal((await stat(lockPath)).isDirectory(), true, 'release cannot delete another owner lease');
 });
 
 test('approval rejects stale, unauthorized, expired, cross-proposal, wrong-state, non-localhost, and failed writes without residue', async (t) => {

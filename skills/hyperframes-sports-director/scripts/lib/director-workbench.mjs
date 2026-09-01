@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, extname, join } from 'node:path';
-import { chmod, copyFile, mkdir, open, readFile, readdir, rename, rm, rmdir, stat, unlink } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, stat, unlink } from 'node:fs/promises';
 
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
 import { loadDirectionSources, validateDirectionProposals } from './direction-proposals.mjs';
@@ -380,16 +380,147 @@ function exactDigestSet(actual, expected) {
   return actualKeys.length === expectedKeys.length && actualKeys.every((key, index) => key === expectedKeys[index] && actual[key] === expected[key]);
 }
 
-async function acquireApprovalLock(projectRoot) {
-  const lockPath = projectPath(projectRoot, 'cache/director-approval.lock');
+function makeApprovalLease(ownerToken, now, ttlMs) {
+  const lease = {
+    schemaVersion: '1.0.0', ownerToken, pid: process.pid,
+    createdAt: new Date(now).toISOString(), expiresAt: new Date(now + ttlMs).toISOString(),
+    integrity: { digest: null, upstream: {} },
+  };
+  lease.integrity.digest = computeArtifactDigest(lease);
+  return lease;
+}
+
+function validateApprovalLease(value) {
+  const keys = Object.keys(value ?? {}).sort();
+  const expectedKeys = ['createdAt', 'expiresAt', 'integrity', 'ownerToken', 'pid', 'schemaVersion'];
+  const createdAt = Date.parse(value?.createdAt);
+  const expiresAt = Date.parse(value?.expiresAt);
+  const integrity = value?.integrity;
+  const upstream = integrity?.upstream;
+  return keys.length === expectedKeys.length
+    && keys.every((key, index) => key === expectedKeys[index])
+    && value.schemaVersion === '1.0.0'
+    && /^[0-9a-f]{64}$/.test(value.ownerToken ?? '')
+    && Number.isSafeInteger(value.pid) && value.pid > 0
+    && Number.isFinite(createdAt) && Number.isFinite(expiresAt) && expiresAt > createdAt
+    && integrity && typeof integrity === 'object' && !Array.isArray(integrity)
+    && Object.keys(integrity).sort().join(',') === 'digest,upstream'
+    && upstream && typeof upstream === 'object' && !Array.isArray(upstream) && Object.keys(upstream).length === 0
+    && verifyArtifactIntegrity(value).valid;
+}
+
+async function readApprovalLease(lockPath) {
   try {
-    await mkdir(lockPath, { mode: 0o700 });
-    await chmod(lockPath, 0o700);
+    const [directoryMetadata, leaseMetadata, lease] = await Promise.all([
+      lstat(lockPath),
+      lstat(join(lockPath, 'lease.json')),
+      readFile(join(lockPath, 'lease.json'), 'utf8').then(JSON.parse),
+    ]);
+    if (!directoryMetadata.isDirectory() || directoryMetadata.isSymbolicLink() || (directoryMetadata.mode & 0o777) !== 0o700
+      || !leaseMetadata.isFile() || leaseMetadata.isSymbolicLink() || (leaseMetadata.mode & 0o777) !== 0o600
+      || !validateApprovalLease(lease)) {
+      throw new DirectorWorkbenchError('E_APPROVAL_LOCK_INVALID', 'approval lock lease is malformed or not owner-only');
+    }
+    return lease;
   } catch (error) {
-    if (error.code === 'EEXIST') throw new DirectorWorkbenchError('E_APPROVAL_BUSY', 'another director approval transaction is active');
+    if (error instanceof DirectorWorkbenchError) throw error;
+    throw new DirectorWorkbenchError('E_APPROVAL_LOCK_INVALID', 'approval lock lease is missing, unreadable, or malformed');
+  }
+}
+
+function ownerProcessStatus(pid) {
+  try {
+    process.kill(pid, 0);
+    return 'live';
+  } catch (error) {
+    if (error.code === 'ESRCH') return 'dead';
+    return 'unconfirmed';
+  }
+}
+
+async function restoreClaimOrFail(claimPath, lockPath, code, message) {
+  try { await rename(claimPath, lockPath); } catch {}
+  throw new DirectorWorkbenchError(code, message);
+}
+
+async function reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerToken) {
+  if (now < Date.parse(observedLease.expiresAt)) {
+    throw new DirectorWorkbenchError('E_APPROVAL_BUSY', 'another director approval transaction is active');
+  }
+  const ownerStatus = ownerProcessStatus(observedLease.pid);
+  if (ownerStatus === 'live') throw new DirectorWorkbenchError('E_APPROVAL_BUSY', 'expired approval lease still has a live owner');
+  if (ownerStatus !== 'dead') throw new DirectorWorkbenchError('E_APPROVAL_LOCK_UNCONFIRMED', 'approval lease owner liveness cannot be confirmed');
+  const claimPath = `${lockPath}.abandoned-${ownerToken}`;
+  try {
+    await rename(lockPath, claimPath);
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
     throw error;
   }
-  return async () => rmdir(lockPath);
+  let claimedLease;
+  try {
+    claimedLease = await readApprovalLease(claimPath);
+  } catch {
+    return restoreClaimOrFail(claimPath, lockPath, 'E_APPROVAL_LOCK_INVALID', 'claimed approval lease changed or became invalid');
+  }
+  if (!sameSecret(claimedLease.ownerToken, observedLease.ownerToken)
+    || claimedLease.integrity.digest !== observedLease.integrity.digest
+    || Date.parse(claimedLease.expiresAt) > now
+    || ownerProcessStatus(claimedLease.pid) !== 'dead') {
+    return restoreClaimOrFail(claimPath, lockPath, 'E_APPROVAL_LOCK_INVALID', 'claimed approval lease is not the confirmed abandoned owner');
+  }
+  await rm(claimPath, { recursive: true, force: false });
+  return true;
+}
+
+async function releaseApprovalLock(lockPath, ownerToken) {
+  let lease;
+  try { lease = await readApprovalLease(lockPath); } catch {
+    throw new DirectorWorkbenchError('E_APPROVAL_LOCK_OWNERSHIP', 'approval lock cannot be released without its exact valid owner lease');
+  }
+  if (!sameSecret(lease.ownerToken, ownerToken)) {
+    throw new DirectorWorkbenchError('E_APPROVAL_LOCK_OWNERSHIP', 'approval lock owner token changed');
+  }
+  const claimPath = `${lockPath}.release-${ownerToken}`;
+  try {
+    await rename(lockPath, claimPath);
+  } catch {
+    throw new DirectorWorkbenchError('E_APPROVAL_LOCK_OWNERSHIP', 'approval lock ownership changed before release');
+  }
+  let claimedLease;
+  try { claimedLease = await readApprovalLease(claimPath); } catch {
+    return restoreClaimOrFail(claimPath, lockPath, 'E_APPROVAL_LOCK_OWNERSHIP', 'claimed release lease is invalid');
+  }
+  if (!sameSecret(claimedLease.ownerToken, ownerToken) || claimedLease.integrity.digest !== lease.integrity.digest) {
+    return restoreClaimOrFail(claimPath, lockPath, 'E_APPROVAL_LOCK_OWNERSHIP', 'claimed release lease belongs to another owner');
+  }
+  await rm(claimPath, { recursive: true, force: false });
+}
+
+async function acquireApprovalLock(projectRoot, now, ttlMs = 60_000) {
+  if (!Number.isFinite(now) || !Number.isFinite(ttlMs) || ttlMs <= 0) {
+    throw new DirectorWorkbenchError('E_APPROVAL_LOCK_OPTIONS', 'approval lease requires a valid clock and positive TTL');
+  }
+  const lockPath = projectPath(projectRoot, 'cache/director-approval.lock');
+  const ownerToken = randomBytes(32).toString('hex');
+  while (true) {
+    try {
+      await mkdir(lockPath, { mode: 0o700 });
+      try {
+        await chmod(lockPath, 0o700);
+        const lease = makeApprovalLease(ownerToken, now, ttlMs);
+        await writeAtomic(join(lockPath, 'lease.json'), `${JSON.stringify(lease, null, 2)}\n`, 0o600);
+      } catch (error) {
+        await rmdir(lockPath).catch(() => {});
+        throw error;
+      }
+      return async () => releaseApprovalLock(lockPath, ownerToken);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const observedLease = await readApprovalLease(lockPath);
+      if (!await reclaimAbandonedApprovalLock(lockPath, observedLease, now, ownerToken)) continue;
+    }
+  }
 }
 
 export async function recordDirectorApproval(request = {}) {
@@ -408,7 +539,7 @@ export async function recordDirectorApproval(request = {}) {
   }
   const now = Date.parse((request.now ?? (() => new Date().toISOString()))());
   if (!Number.isFinite(now) || now >= Date.parse(session.expiresAt)) throw new DirectorWorkbenchError('E_SESSION_EXPIRED', 'director session expired');
-  const releaseApprovalLock = await acquireApprovalLock(projectRoot);
+  const releaseApprovalLock = await acquireApprovalLock(projectRoot, now);
   try {
     const state = JSON.parse(await readFile(projectPath(projectRoot, 'PROJECT_STATE.json'), 'utf8'));
     if (state.state !== 'DIRECTOR_REVIEW_READY') throw new DirectorWorkbenchError('E_APPROVAL_STATE', 'approval is available only in DIRECTOR_REVIEW_READY');
