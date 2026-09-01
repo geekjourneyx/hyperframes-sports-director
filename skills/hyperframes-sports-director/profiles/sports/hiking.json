@@ -1,0 +1,15 @@
+{
+  "kind": "sport",
+  "id": "hiking",
+  "maturity": "release-grade",
+  "policies": {
+    "journeyGrammar": { "stages": ["prepare", "depart", "move", "observe", "pause", "arrive", "return"], "continuityRequirements": ["terrain-transition", "place-continuity"] },
+    "cameraRoleWeights": { "pov": 2, "front": 1, "rear": 1, "side": 2, "overhead": 1, "low": 1, "ground": 0, "detail": 3, "portrait": 2, "wide": 5, "unknown": 0 },
+    "speedPolicy": { "maximumMontageRate": 6, "allowedTreatments": ["gentle-time-compression"], "rejectedTreatments": ["aggressive-speed-ramp"] },
+    "stabilizationPolicy": { "mode": "conservative", "maximumCropFraction": 0.08 },
+    "duplicatePolicy": { "minimumSeparationSeconds": 18, "preferAlternateCameraRole": true },
+    "audioPolicy": { "protect": ["speech", "wind", "place-ambience"], "musicDucking": "required-under-speech" },
+    "dataPolicy": { "gps": { "permitted": true, "required": false }, "primaryMetrics": ["distance", "elevationGain", "movingTime"] },
+    "visualPolicy": { "footagePrimacy": true, "emphasis": ["terrain", "place", "pause"] }
+  }
+}

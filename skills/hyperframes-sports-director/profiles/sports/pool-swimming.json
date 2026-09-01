@@ -1,0 +1,15 @@
+{
+  "kind": "sport",
+  "id": "pool-swimming",
+  "maturity": "release-grade",
+  "policies": {
+    "journeyGrammar": { "stages": ["prepare", "depart", "move", "effort", "pause", "return"], "continuityRequirements": ["lap-turn", "stroke-continuity"] },
+    "cameraRoleWeights": { "pov": 3, "front": 1, "rear": 1, "side": 4, "overhead": 2, "low": 1, "ground": 0, "detail": 3, "portrait": 1, "wide": 2, "unknown": 0 },
+    "speedPolicy": { "maximumMontageRate": 8, "allowedTreatments": ["lap-time-compression"], "rejectedTreatments": ["stroke-discontinuity"] },
+    "stabilizationPolicy": { "mode": "minimal", "maximumCropFraction": 0.06 },
+    "duplicatePolicy": { "minimumSeparationSeconds": 10, "preferAlternateCameraRole": true },
+    "audioPolicy": { "protect": ["splash", "pool-ambience"], "musicDucking": "preserve-natural-transients" },
+    "dataPolicy": { "gps": { "permitted": false, "required": false }, "primaryMetrics": ["movingTime"] },
+    "visualPolicy": { "footagePrimacy": true, "emphasis": ["underwater-color", "lap-rhythm", "turn"] }
+  }
+}

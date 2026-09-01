@@ -1,0 +1,15 @@
+{
+  "kind": "sport",
+  "id": "cycling",
+  "maturity": "release-grade",
+  "policies": {
+    "journeyGrammar": { "stages": ["prepare", "depart", "move", "effort", "observe", "arrive", "return"], "continuityRequirements": ["screen-direction", "motion-direction"] },
+    "cameraRoleWeights": { "pov": 5, "front": 2, "rear": 2, "side": 4, "overhead": 1, "low": 2, "ground": 0, "detail": 2, "portrait": 1, "wide": 3, "unknown": 0 },
+    "speedPolicy": { "maximumMontageRate": 12, "allowedTreatments": ["speed-ramp", "time-compression"], "rejectedTreatments": [] },
+    "stabilizationPolicy": { "mode": "conservative", "maximumCropFraction": 0.12 },
+    "duplicatePolicy": { "minimumSeparationSeconds": 12, "preferAlternateCameraRole": true },
+    "audioPolicy": { "protect": ["speech", "road-ambience"], "musicDucking": "required-under-speech" },
+    "dataPolicy": { "gps": { "permitted": true, "required": false }, "primaryMetrics": ["distance", "speed", "elevationGain"] },
+    "visualPolicy": { "footagePrimacy": true, "emphasis": ["route", "effort", "place"] }
+  }
+}

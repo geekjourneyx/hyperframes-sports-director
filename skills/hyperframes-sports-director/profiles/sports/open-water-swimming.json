@@ -1,0 +1,15 @@
+{
+  "kind": "sport",
+  "id": "open-water-swimming",
+  "maturity": "experimental",
+  "policies": {
+    "journeyGrammar": { "stages": ["prepare", "depart", "move", "effort", "observe", "arrive", "return"], "continuityRequirements": ["horizon-continuity", "stroke-continuity"] },
+    "cameraRoleWeights": { "pov": 3, "front": 1, "rear": 1, "side": 3, "overhead": 2, "low": 1, "ground": 0, "detail": 2, "portrait": 1, "wide": 4, "unknown": 0 },
+    "speedPolicy": { "maximumMontageRate": 7, "allowedTreatments": ["gentle-time-compression"], "rejectedTreatments": ["horizon-discontinuity"] },
+    "stabilizationPolicy": { "mode": "minimal", "maximumCropFraction": 0.06 },
+    "duplicatePolicy": { "minimumSeparationSeconds": 12, "preferAlternateCameraRole": true },
+    "audioPolicy": { "protect": ["water-ambience", "breathing"], "musicDucking": "preserve-natural-transients" },
+    "dataPolicy": { "gps": { "permitted": true, "required": false }, "primaryMetrics": ["distance", "movingTime"] },
+    "visualPolicy": { "footagePrimacy": true, "emphasis": ["horizon", "water-color", "stroke"] }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "kind": "device",
+  "id": "dji-osmo-action-5-pro",
+  "maturity": "release-grade",
+  "policies": {
+    "capturePolicy": {
+      "primaryCapture": true,
+      "supportedRasters": [
+        { "width": 3840, "height": 2160 },
+        { "width": 1920, "height": 1080 }
+      ],
+      "sourceFrameRatePolicy": "preserve-when-compatible",
+      "horizonLeveling": "review-before-apply"
+    }
+  }
+}

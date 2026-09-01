@@ -1,0 +1,15 @@
+{
+  "kind": "sport",
+  "id": "running",
+  "maturity": "experimental",
+  "policies": {
+    "journeyGrammar": { "stages": ["prepare", "depart", "move", "effort", "observe", "arrive", "return"], "continuityRequirements": ["gait-continuity", "screen-direction"] },
+    "cameraRoleWeights": { "pov": 4, "front": 2, "rear": 1, "side": 3, "overhead": 1, "low": 2, "ground": 0, "detail": 2, "portrait": 1, "wide": 2, "unknown": 0 },
+    "speedPolicy": { "maximumMontageRate": 10, "allowedTreatments": ["gentle-speed-ramp"], "rejectedTreatments": ["gait-discontinuity"] },
+    "stabilizationPolicy": { "mode": "conservative", "maximumCropFraction": 0.08 },
+    "duplicatePolicy": { "minimumSeparationSeconds": 10, "preferAlternateCameraRole": true },
+    "audioPolicy": { "protect": ["breathing", "speech", "footfall"], "musicDucking": "required-under-speech" },
+    "dataPolicy": { "gps": { "permitted": true, "required": false }, "primaryMetrics": ["distance", "movingTime"] },
+    "visualPolicy": { "footagePrimacy": true, "emphasis": ["cadence", "effort", "place"] }
+  }
+}

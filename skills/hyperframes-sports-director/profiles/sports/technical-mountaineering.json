@@ -1,0 +1,15 @@
+{
+  "kind": "sport",
+  "id": "technical-mountaineering",
+  "maturity": "experimental",
+  "policies": {
+    "journeyGrammar": { "stages": ["prepare", "depart", "move", "effort", "pause", "arrive", "return"], "continuityRequirements": ["risk-context", "terrain-transition"] },
+    "cameraRoleWeights": { "pov": 3, "front": 1, "rear": 1, "side": 2, "overhead": 1, "low": 1, "ground": 0, "detail": 4, "portrait": 1, "wide": 4, "unknown": 0 },
+    "speedPolicy": { "maximumMontageRate": 4, "allowedTreatments": ["real-time", "gentle-time-compression"], "rejectedTreatments": ["risk_obscuring"] },
+    "stabilizationPolicy": { "mode": "conservative", "maximumCropFraction": 0.05 },
+    "duplicatePolicy": { "minimumSeparationSeconds": 20, "preferAlternateCameraRole": true },
+    "audioPolicy": { "protect": ["safety-call", "wind", "gear"], "musicDucking": "required-under-safety-call" },
+    "dataPolicy": { "gps": { "permitted": true, "required": false }, "primaryMetrics": ["elevationGain", "movingTime"] },
+    "visualPolicy": { "footagePrimacy": true, "emphasis": ["terrain", "altitude", "risk-context"] }
+  }
+}
