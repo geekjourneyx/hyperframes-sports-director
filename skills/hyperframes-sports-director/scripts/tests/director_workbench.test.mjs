@@ -113,8 +113,8 @@ function candidate(id, title, accent) {
     storyStructure: ['departure', 'effort', 'release'],
     visualWorldPlan: { statement: `${title} uses mineral darkness and editorial restraint.`, plannedAssets: ['chapter-slate', 'route-thread'] },
     componentPlan: { components: ['chapter-index', 'effort-marker'], heroAssets: ['summit-silhouette'] },
-    layoutProofs: [`review/workbench-assets/layout-${suffix}.svg`],
-    motionStoryboard: [`review/workbench-assets/motion-${suffix}.svg`],
+    layoutProofs: [`review/workbench-assets/prototype-${id}-layout-001.svg`],
+    motionStoryboard: [`review/workbench-assets/prototype-${id}-motion-001.svg`],
     assetPlan: { roles: ['journey_anchor', 'chapter_slate', 'effort_marker'], productionImageGenUsed: false },
     musicPlan: { mode: 'provided', trackIds: ['music-001'] },
     risks: ['Protect the rider silhouette against dense forest frames.'],
@@ -128,7 +128,7 @@ async function fixture(t, { state = 'ROUGH_CUT' } = {}) {
     const { rm } = await import('node:fs/promises');
     await rm(projectRoot, { recursive: true, force: true });
   });
-  for (const directory of ['analysis', 'direction', 'edit', 'renders', 'review/workbench-assets', 'cache']) {
+  for (const directory of ['analysis/evidence/media-video-001/segment-001', 'direction', 'edit', 'renders', 'review/workbench-assets', 'cache']) {
     await mkdir(join(projectRoot, directory), { recursive: true });
   }
   const sourceDigest = sha('source-video');
@@ -163,9 +163,9 @@ async function fixture(t, { state = 'ROUGH_CUT' } = {}) {
     sourceMediaIds: ['media-video-001'], segments: [{
       segmentId: 'segment-001', mediaId: 'media-video-001', mediaType: 'video', sourceDigest, probeDigest: probe.integrity.digest,
       sourceInSeconds: 0, sourceOutSeconds: 12, sourceDurationSeconds: 12, sceneScore: 0.7, motionScore: 0.8, audioPresent: true,
-      reviewPath: 'review/workbench-assets/clip-001.mp4', evidenceFrames: [
-        { path: 'review/workbench-assets/frame-001.jpg', sourceTimeSeconds: 2 },
-        { path: 'review/workbench-assets/frame-002.jpg', sourceTimeSeconds: 8 },
+      reviewPath: 'analysis/evidence/media-video-001/segment-001.webp', evidenceFrames: [
+        { path: 'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-001.webp', sourceTimeSeconds: 2 },
+        { path: 'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-002.webp', sourceTimeSeconds: 8 },
       ],
     }], integrity: { digest: null, upstream: { probe: probe.integrity.digest } },
   });
@@ -177,7 +177,10 @@ async function fixture(t, { state = 'ROUGH_CUT' } = {}) {
       quality: { motionIntensity: 'high', blur: 'none', shake: 'minor', exposure: 'good', horizon: 'level', occlusion: 'none' },
       continuity: { screenDirection: 'left-to-right', motionDirection: 'forward', subjectEntry: 'center', subjectExit: 'center', location: 'forest climb', timeRelation: 'continuous' },
       audioSpans: [{ kind: 'ambient', sourceInSeconds: 0, sourceOutSeconds: 12 }], duplicateGroup: null, setupTailLikelihood: 0.03,
-      evidenceFrames: ['review/workbench-assets/frame-001.jpg', 'review/workbench-assets/frame-002.jpg'], confidence: 0.91,
+      evidenceFrames: [
+        'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-001.webp',
+        'analysis/evidence/media-video-001/segment-001/evidence-media-video-001-segment-001-frame-002.webp',
+      ], confidence: 0.91,
     }], integrity: { digest: null, upstream: { probe: probe.integrity.digest, segments: segments.integrity.digest } },
   });
   const timeline = stamp({
@@ -216,7 +219,11 @@ async function fixture(t, { state = 'ROUGH_CUT' } = {}) {
   };
   for (const [path, value] of Object.entries(documents)) await writeJson(join(projectRoot, path), value);
   await writeFile(join(projectRoot, 'renders/rough-cut.json'), `${JSON.stringify(roughCut, null, 2)}\n`);
-  for (const name of ['frame-001.jpg', 'frame-002.jpg', 'clip-001.mp4']) await writeFile(join(projectRoot, 'review/workbench-assets', name), name);
+  await writeFile(join(projectRoot, 'analysis/evidence/media-video-001/segment-001.webp'), 'segment-001');
+  for (const name of [
+    'evidence-media-video-001-segment-001-frame-001.webp',
+    'evidence-media-video-001-segment-001-frame-002.webp',
+  ]) await writeFile(join(projectRoot, 'analysis/evidence/media-video-001/segment-001', name), name);
   const candidates = [candidate('candidate-a', 'MONUMENTAL QUIET', '#D6A65B'), candidate('candidate-b', 'KINETIC LEDGER', '#63B3A6')];
   for (const proposal of candidates) {
     for (const path of [...proposal.layoutProofs, ...proposal.motionStoryboard]) {
@@ -271,6 +278,8 @@ test('proposal compiler rejects mixed candidate tokens, stale evidence, producti
     { code: 'E_REFERENCE_EMBEDDED', mutate(value) { value[0].visualWorldPlan.statement = 'data:image/png;base64,AAAA'; } },
     { code: 'E_REFERENCE_TRAVERSAL', mutate(value) { value[0].layoutProofs[0] = '../escape.svg'; } },
     { code: 'E_RAW_GPS', mutate(value) { value[0].risks[0] = 'raw GPS 37.7749,-122.4194'; } },
+    { code: 'E_REFERENCE_PRIVATE_NAME', mutate(value) { value[0].layoutProofs[0] = 'review/workbench-assets/Alice-Sunday-Ride.svg'; } },
+    { code: 'E_REFERENCE_PRIVATE_NAME', mutate(value) { value[0].motionStoryboard[0] = 'review/workbench-assets/Alice-Motion-Test.svg'; } },
   ];
   for (const variant of variants) {
     const { projectRoot, candidates } = await fixture(t);
@@ -282,14 +291,44 @@ test('proposal compiler rejects mixed candidate tokens, stale evidence, producti
   probe.revision += 1;
   await writeJson(join(projectRoot, 'analysis/PROBE.json'), probe);
   await assert.rejects(() => compileDirectionProposals({ projectRoot, candidates }), (error) => error.code === 'E_SOURCE_STALE');
+
+  const staleMediaIndex = await fixture(t);
+  staleMediaIndex.documents['analysis/MEDIA_INDEX.json'].revision += 1;
+  await writeJson(join(staleMediaIndex.projectRoot, 'analysis/MEDIA_INDEX.json'), staleMediaIndex.documents['analysis/MEDIA_INDEX.json']);
+  await assert.rejects(
+    () => compileDirectionProposals({ projectRoot: staleMediaIndex.projectRoot, candidates: staleMediaIndex.candidates }),
+    (error) => error.code === 'E_SOURCE_STALE',
+  );
+
+  const privateFrame = await fixture(t);
+  const framePath = 'analysis/evidence/media-video-001/segment-001/Alice-Sunday-Ride.webp';
+  await writeFile(join(privateFrame.projectRoot, framePath), 'private frame basename');
+  privateFrame.documents['analysis/SEGMENTS.json'].segments[0].evidenceFrames[0].path = framePath;
+  await writeJson(join(privateFrame.projectRoot, 'analysis/SEGMENTS.json'), privateFrame.documents['analysis/SEGMENTS.json']);
+  privateFrame.documents['analysis/SHOTS.jsonl'].shots[0].evidenceFrames[0] = framePath;
+  privateFrame.documents['analysis/SHOTS.jsonl'].integrity.upstream.segments = privateFrame.documents['analysis/SEGMENTS.json'].integrity.digest;
+  await writeJson(join(privateFrame.projectRoot, 'analysis/SHOTS.jsonl'), privateFrame.documents['analysis/SHOTS.jsonl']);
+  privateFrame.documents['edit/TIMELINE.json'].integrity.upstream.shots = privateFrame.documents['analysis/SHOTS.jsonl'].integrity.digest;
+  await writeJson(join(privateFrame.projectRoot, 'edit/TIMELINE.json'), privateFrame.documents['edit/TIMELINE.json']);
+  privateFrame.roughCut.integrity.timelineDigest = privateFrame.documents['edit/TIMELINE.json'].integrity.digest;
+  await writeFile(join(privateFrame.projectRoot, 'renders/rough-cut.json'), `${JSON.stringify(privateFrame.roughCut, null, 2)}\n`);
+  await assert.rejects(
+    () => compileDirectionProposals({ projectRoot: privateFrame.projectRoot, candidates: privateFrame.candidates }),
+    (error) => error.code === 'E_REFERENCE_PRIVATE_NAME',
+  );
 });
 
 test('workbench is a deterministic escaped evidence view with isolated candidates and one dominant director canvas', async (t) => {
   const { projectRoot, artifact } = await compileAndReady(t);
   const first = await buildWorkbenchModel(projectRoot);
   const second = await buildWorkbenchModel(projectRoot);
-  assert.deepEqual(first.proposals, artifact, 'the workbench consumes rather than creates or changes candidates');
-  assert.deepEqual(second.proposals, artifact);
+  assert.equal(first.sourceProposalDigest, artifact.integrity.digest, 'the view binds the unchanged source proposal artifact');
+  assert.deepEqual(first.proposals.candidates.map(({ candidateId }) => candidateId), artifact.candidates.map(({ candidateId }) => candidateId));
+  assert.deepEqual(second, first);
+  assert.ok(first.keyFrames.every(({ path }) => path.startsWith(`review/workbench-assets/${first.bundleDigest}/`)));
+  assert.ok(first.keyFrames.every(({ path }) => !path.includes('analysis/evidence')));
+  assert.ok(first.proposals.candidates.every(({ layoutProofs, motionStoryboard }) => [...layoutProofs, ...motionStoryboard]
+    .every((path) => path.startsWith(`review/workbench-assets/${first.bundleDigest}/`))));
   const htmlA = renderWorkbenchHtml(first);
   const htmlB = renderWorkbenchHtml(second);
   assert.equal(htmlA, htmlB);
@@ -308,6 +347,10 @@ test('workbench is a deterministic escaped evidence view with isolated candidate
   assert.equal(htmlA.includes('https://'), false);
   const outputA = await buildDirectorWorkbench(projectRoot);
   const bytesA = await readFile(join(projectRoot, outputA.path));
+  for (const path of [first.stylesheetPath, first.scriptPath, first.roughCut.path, ...first.keyFrames.map(({ path }) => path)]) {
+    assert.equal((await stat(join(projectRoot, path))).isFile(), true, path);
+  }
+  assert.equal(await readFile(join(projectRoot, artifact.candidates[0].layoutProofs[0]), 'utf8'), '<svg xmlns="http://www.w3.org/2000/svg"><text>candidate-a</text></svg>');
   const outputB = await buildDirectorWorkbench(projectRoot);
   const bytesB = await readFile(join(projectRoot, outputB.path));
   assert.deepEqual(bytesA, bytesB, 'identical inputs produce byte-identical canonical HTML');
@@ -319,6 +362,43 @@ test('workbench is a deterministic escaped evidence view with isolated candidate
   const safe = renderWorkbenchHtml(escaped);
   assert.ok(safe.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.equal(safe.includes('<img src=x'), false);
+});
+
+test('workbench publishes a complete immutable asset bundle before replacing canonical HTML', async (t) => {
+  const context = await compileAndReady(t);
+  const oldBuild = await buildDirectorWorkbench(context.projectRoot);
+  const canonicalPath = join(context.projectRoot, oldBuild.path);
+  const oldHtml = await readFile(canonicalPath);
+  const oldBundleRoot = join(context.projectRoot, 'review/workbench-assets', oldBuild.bundleDigest);
+  const oldBundleNames = (await readdir(oldBundleRoot)).sort();
+  const oldBundleBytes = await Promise.all(oldBundleNames.map((name) => readFile(join(oldBundleRoot, name))));
+
+  const changedPath = context.candidates[0].layoutProofs[0];
+  const changedBytes = '<svg xmlns="http://www.w3.org/2000/svg"><text>candidate-a revision 2</text></svg>';
+  await writeFile(join(context.projectRoot, changedPath), changedBytes);
+  context.candidates[0].previewArtifactDigests[changedPath] = sha(changedBytes);
+  await compileDirectionProposals({ projectRoot: context.projectRoot, candidates: context.candidates });
+  await assert.rejects(
+    () => buildDirectorWorkbench(context.projectRoot, {
+      beforeBundlePublish: async () => { throw Object.assign(new Error('injected bundle failure'), { code: 'E_INJECTED_BUNDLE' }); },
+    }),
+    (error) => error.code === 'E_INJECTED_BUNDLE',
+  );
+
+  assert.deepEqual(await readFile(canonicalPath), oldHtml, 'failed staging cannot replace the canonical view');
+  assert.deepEqual((await readdir(oldBundleRoot)).sort(), oldBundleNames);
+  for (const [index, name] of oldBundleNames.entries()) {
+    assert.deepEqual(await readFile(join(oldBundleRoot, name)), oldBundleBytes[index], name);
+  }
+  const bundleEntries = await readdir(join(context.projectRoot, 'review/workbench-assets'), { withFileTypes: true });
+  assert.deepEqual(bundleEntries.filter((entry) => entry.isDirectory()).map(({ name }) => name), [oldBuild.bundleDigest]);
+  assert.equal(bundleEntries.some(({ name }) => name.includes('.tmp')), false);
+
+  const currentBuild = await buildDirectorWorkbench(context.projectRoot);
+  assert.notEqual(currentBuild.bundleDigest, oldBuild.bundleDigest);
+  const currentHtml = await readFile(canonicalPath, 'utf8');
+  assert.ok(currentHtml.includes(currentBuild.bundleDigest));
+  assert.equal((await stat(join(context.projectRoot, 'review/workbench-assets', currentBuild.bundleDigest))).isDirectory(), true);
 });
 
 test('approval is one current atomic hash-bound decision and never freezes or transitions project state', async (t) => {
@@ -353,12 +433,45 @@ test('approval is one current atomic hash-bound decision and never freezes or tr
     workbenchDigest: built.digest, sessionId: server.sessionId, csrfToken: server.csrfToken, session: server.session, now: () => NOW,
   }), (error) => error.code === 'E_APPROVAL_EXISTS');
 
-  const response = await fetch(`${server.url}workbench-assets/frame-001.jpg`);
+  const servedModel = await buildWorkbenchModel(projectRoot);
+  const response = await fetch(new URL(servedModel.keyFrames[0].path.slice('review/'.length), server.url));
   assert.equal(response.status, 200);
   assert.equal((await fetch(`${server.url}../EDIT_BRIEF.json`)).status, 404);
   await server.close();
   await assert.rejects(() => stat(server.sessionDir), { code: 'ENOENT' });
   assert.equal((await stat(join(projectRoot, 'cache/director-workbench-sessions', unrelatedLiveSession.id))).isDirectory(), true);
+});
+
+test('approval uses one project-scoped exclusive transaction across revalidation and atomic write', async (t) => {
+  const { projectRoot } = await compileAndReady(t);
+  const built = await buildDirectorWorkbench(projectRoot);
+  const model = await buildWorkbenchModel(projectRoot);
+  const session = { id: 'session-exclusive-lock', csrfToken: 'csrf-exclusive-lock', expiresAt: '2026-09-01T12:05:00.000Z' };
+  await installSession(projectRoot, session);
+
+  let announceLocked;
+  const locked = new Promise((resolve) => { announceLocked = resolve; });
+  let releaseWrite;
+  const mayWrite = new Promise((resolve) => { releaseWrite = resolve; });
+  const request = {
+    projectRoot, displayedArtifactDigests: model.displayedArtifactDigests, workbenchDigest: built.digest,
+    sessionId: session.id, csrfToken: session.csrfToken, now: () => NOW,
+  };
+  const first = recordDirectorApproval({
+    ...request, selectedCandidateId: 'candidate-a',
+    beforeRename: async () => { announceLocked(); await mayWrite; },
+  });
+  await locked;
+  await assert.rejects(
+    () => recordDirectorApproval({ ...request, selectedCandidateId: 'candidate-b' }),
+    (error) => error.code === 'E_APPROVAL_BUSY',
+  );
+  releaseWrite();
+  assert.equal((await first).approval.selectedCandidateId, 'candidate-a');
+  await assert.rejects(
+    () => recordDirectorApproval({ ...request, selectedCandidateId: 'candidate-b' }),
+    (error) => error.code === 'E_APPROVAL_EXISTS',
+  );
 });
 
 test('approval rejects stale, unauthorized, expired, cross-proposal, wrong-state, non-localhost, and failed writes without residue', async (t) => {

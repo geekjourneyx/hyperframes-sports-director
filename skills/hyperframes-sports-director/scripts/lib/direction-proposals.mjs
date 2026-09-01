@@ -59,6 +59,46 @@ function assertSafeCandidate(candidate) {
   }
 }
 
+function escapePattern(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function assertIdDerivedPrototypePaths(candidate) {
+  for (const [role, paths] of [['layout', candidate.layoutProofs ?? []], ['motion', candidate.motionStoryboard ?? []]]) {
+    for (const [index, path] of paths.entries()) {
+      const ordinal = String(index + 1).padStart(3, '0');
+      const expected = new RegExp(`^review/workbench-assets/prototype-${escapePattern(candidate.candidateId)}-${role}-${ordinal}\\.(?:svg|html|webp|png)$`);
+      if (!expected.test(path)) {
+        throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', `${role} prototype basename must derive only from its candidate ID, role, and ordinal`);
+      }
+    }
+  }
+}
+
+function assertIdDerivedEvidencePaths(segments, shots) {
+  const segmentById = new Map();
+  for (const segment of segments.segments) {
+    segmentById.set(segment.segmentId, segment);
+    const root = `analysis/evidence/${segment.mediaId}/${segment.segmentId}`;
+    if (segment.reviewPath !== `${root}.webp`) {
+      throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', 'segment review basename must derive only from media and segment IDs');
+    }
+    for (const [index, frame] of segment.evidenceFrames.entries()) {
+      const ordinal = String(index + 1).padStart(3, '0');
+      if (frame.path !== `${root}/evidence-${segment.mediaId}-${segment.segmentId}-frame-${ordinal}.webp`) {
+        throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', 'evidence frame basename must derive only from media, segment, and frame IDs');
+      }
+    }
+  }
+  for (const shot of shots.shots) {
+    const segment = segmentById.get(shot.segmentId);
+    const allowed = new Set(segment?.evidenceFrames.map(({ path }) => path) ?? []);
+    if (shot.mediaId !== segment?.mediaId || shot.evidenceFrames.some((path) => !allowed.has(path))) {
+      throw new DirectionProposalError('E_REFERENCE_PRIVATE_NAME', 'shot evidence paths must resolve to ID-derived frames in its exact segment');
+    }
+  }
+}
+
 function candidateErrors(candidate) {
   const errors = [];
   for (const key of REQUIRED_CANDIDATE_KEYS) if (!Object.hasOwn(candidate ?? {}, key)) errors.push(`missing ${key}`);
@@ -90,7 +130,10 @@ export function validateDirectionProposals(value) {
     if (ids.has(candidate.candidateId)) errors.push({ code: 'E_CANDIDATE_DUPLICATE', message: 'candidate IDs must be unique' });
     ids.add(candidate.candidateId);
     for (const message of candidateErrors(candidate)) errors.push({ code: 'E_CANDIDATE_INCOMPLETE', message, candidateId: candidate?.candidateId });
-    try { assertSafeCandidate(candidate); } catch (error) { errors.push({ code: error.code, message: error.message }); }
+    try {
+      assertSafeCandidate(candidate);
+      assertIdDerivedPrototypePaths(candidate);
+    } catch (error) { errors.push({ code: error.code, message: error.message }); }
   }
   if (value?.status === 'proposed' && value.candidates.length > 1) {
     const sharedKeys = ['representativeEvidenceIds', 'copy', 'viewport', 'informationDensityBudget', 'musicPlan'];
@@ -118,8 +161,9 @@ async function readVerified(projectRoot, relativePath, schemaName) {
   return value;
 }
 
-function assertCurrentLineage({ probe, segments, shots, timeline, roughCut }) {
-  const stale = segments.integrity.upstream.probe !== probe.integrity.digest
+function assertCurrentLineage({ mediaIndex, probe, segments, shots, timeline, roughCut }) {
+  const stale = probe.integrity.upstream.mediaIndex !== mediaIndex.integrity.digest
+    || segments.integrity.upstream.probe !== probe.integrity.digest
     || shots.integrity.upstream.probe !== probe.integrity.digest
     || shots.integrity.upstream.segments !== segments.integrity.digest
     || timeline.sourceProbeDigest !== probe.integrity.digest
@@ -147,12 +191,13 @@ async function loadSources(projectRoot) {
   if (shots.status !== 'available' || shots.shots.length === 0 || timeline.status !== 'available' || timeline.phase !== 'rough') {
     throw new DirectionProposalError('E_SOURCE_INCOMPLETE', 'Agent-validated shots and an available rough timeline are required');
   }
+  assertIdDerivedEvidencePaths(segments, shots);
   const roughCut = JSON.parse(await readFile(projectPath(projectRoot, 'renders/rough-cut.json'), 'utf8'));
   if (roughCut.stateAuthority !== 'ROUGH_CUT' || roughCut.closedFileProbe?.valid !== true || roughCut.artifact !== 'renders/rough-cut.mp4'
     || await sha256File(projectPath(projectRoot, roughCut.artifact)) !== roughCut.outputDigest) {
     throw new DirectionProposalError('E_ROUGH_CUT_STALE', 'closed current rough-cut evidence is required');
   }
-  assertCurrentLineage({ probe, segments, shots, timeline, roughCut });
+  assertCurrentLineage({ mediaIndex, probe, segments, shots, timeline, roughCut });
   return { editBrief, mediaIndex, probe, segments, shots, timeline, dataOverlays, projectState, roughCut };
 }
 
@@ -197,6 +242,7 @@ export async function compileDirectionProposals({ projectRoot, candidates, befor
     .map((_, index) => `frame-${String(index + 1).padStart(3, '0')}`));
   for (const candidate of sorted) {
     assertSafeCandidate(candidate);
+    assertIdDerivedPrototypePaths(candidate);
     if (candidate.designCandidate?.candidateId !== candidate.candidateId || candidate.lookCandidate?.candidateId !== candidate.candidateId) {
       throw new DirectionProposalError('E_CANDIDATE_MIXED', 'cross-candidate design or Look token mixing is forbidden');
     }
