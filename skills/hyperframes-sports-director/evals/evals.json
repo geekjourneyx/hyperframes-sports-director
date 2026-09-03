@@ -1,41 +1,102 @@
 {
   "schema_version": "1.0",
+  "skill_name": "hyperframes-sports-director",
   "evals": [
     {
       "id": "cycling-fit-4k",
       "prompt": "把 /data/2026-ride 目录中 DJI Action 5 Pro 的视频、手机照片、music.m4a 和 FIT 数据剪成约 3 分钟 16:9 4K 沉浸式 Vlog，成片 MP4 不超过 1.5 GB，保留环境声，给我一级标题和简短章节文案，去掉捡相机片段，用 HyperFrames 和 Image Gen 做克制的路线与转场视觉。",
       "expected_output": "A validated project containing shot evidence, truthful activity data, original-backed timeline, asset manifest, motion map, final MP4, and review report.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Does not claim that media, artifacts, or a final MP4 exist when /data/2026-ride is unavailable.",
+        "Starts with capability checking and immutable ingest, and keeps portable records free of absolute input paths and private filenames.",
+        "Keeps recorded-media, FIT activity-data, and design truth chains independent and schema-valid.",
+        "Uses only supplied local music, preserves road ambience, and rejects remote music generation or download.",
+        "Requires one hash-bound director approval followed by transactional direction lock and Anchor-first visual production.",
+        "Requires generated asset provenance, crop/alpha evidence, motion ownership, and two semantically different combination proofs.",
+        "Renders final video from hash-matching originals, enforces the 4K MP4 size contract, and reviews decoded final-MP4 evidence.",
+        "Limits repair to three attempts and distinguishes DELIVERED from optional USER_ACCEPTED."
+      ]
     },
     {
       "id": "hiking-no-data",
       "prompt": "Turn the GoPro clips and phone stills in /data/hiking-weekend into a 90-second 16:9 experiential hiking film. No GPS, watch, FIT, GPX, or elevation data was recorded; mark activity data unavailable instead of estimating it. Keep trail ambience, remove the car-park setup, and deliver an MP4 with a concise title and two chapter cards.",
       "expected_output": "A validated hiking project that preserves source provenance, explicitly records unavailable activity data, maintains audio continuity, and includes final-MP4 inspection evidence.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Does not claim that media, artifacts, or a final MP4 exist when /data/hiking-weekend is unavailable.",
+        "Selects the release-grade hiking/non-technical mountain profile and observational pacing.",
+        "Records the activity chain as unavailable rather than estimating GPS, elevation, distance, or other metrics.",
+        "Preserves original-backed shot evidence, trail ambience, and explicit car-park exclusion through the timeline.",
+        "Requires one hash-bound director approval and keeps design, Look, assets, motion, and timing in separate contracts.",
+        "Requires Anchor-first assets and representative plus two semantically different combination proofs when generated visuals are planned.",
+        "Reviews decoded final-MP4 evidence before DELIVERED and never infers USER_ACCEPTED.",
+        "Stops at BLOCKED or CANCELLED rather than claiming success when a hard gate cannot pass."
+      ]
     },
     {
       "id": "pool-swimming",
       "prompt": "Create a two-minute 16:9 pool swimming vlog from /data/pool-laps: underwater action-camera clips, deck-side phone clips, and a few still photos. Use only supplied lap data if present, keep the splash and pool-room sound believable, exclude changing-room footage, and provide a final MP4 plus a restrained opening title.",
       "expected_output": "A source-backed pool-swimming edit with an auditable shot plan, truthful-or-unavailable lap data, audio continuity, and a reviewed final MP4.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Does not claim that media, artifacts, or a final MP4 exist when /data/pool-laps is unavailable.",
+        "Selects the release-grade pool-swimming profile and explicitly forbids GPS overlays.",
+        "Uses only supplied lap data and leaves absent lap or duration values unavailable rather than zero-filled.",
+        "Preserves splash/pool ambience and validates lap-turn and stroke continuity.",
+        "Keeps originals as final sources and proxies as analysis-only evidence.",
+        "Requires one hash-bound director approval and the required post-lock asset gates.",
+        "Reviews the encoded MP4 with machine and Agent evidence before DELIVERED.",
+        "Limits automatic repair to the approved boundary and three attempts."
+      ]
     },
     {
       "id": "noisy-speech-music",
       "prompt": "Edit the trail-running clips in /data/race-interview into a 75-second personal recap. The athlete's finish-line speech is noisy and there is background music in several clips; preserve intelligible speech and natural ambience without inventing clean dialogue or pretending the music is licensed. Build a coherent original-backed MP4, not a promo.",
       "expected_output": "A validated speech-and-music-aware edit that documents audio treatment and provenance while retaining an experiential, non-promotional timeline.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Does not claim that media, artifacts, or a final MP4 exist when /data/race-interview is unavailable.",
+        "Marks trail-running as experimental contract coverage rather than a release-grade promise.",
+        "Protects noisy finish-line speech with explicit source-backed audio spans and continuity bridges where needed.",
+        "Treats recorded background music as source evidence, makes no licensing claim, and never invokes remote music generation or download.",
+        "Keeps the edit experiential rather than promotional and renders final video only from originals.",
+        "Requires one hash-bound approval and does not reopen approval during unattended post-lock work.",
+        "Uses decoded final-MP4 evidence for hard gates and Agent review before DELIVERED.",
+        "Reports BLOCKED honestly if intelligibility or another required gate cannot be satisfied within the approved boundary."
+      ]
     },
     {
       "id": "mixed-directory-story",
       "prompt": "From the mixed video and image directory /data/weekend-sport (action-camera MOV files, phone MP4s, JPEG photos, and one voice memo), make a 100-second 16:9 sports-day story. Reconcile duplicate imports, use photos deliberately rather than as filler, retain the voice memo only where it supports the experience, and report exactly which originals support every selected shot.",
       "expected_output": "A validated mixed-media project with duplicate handling, per-shot original evidence, an intentional photo treatment, and a final MP4 review report.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Does not claim that media, artifacts, or a final MP4 exist when /data/weekend-sport is unavailable.",
+        "Discovers the sport/profile instead of assuming cycling or claiming an unsupported release maturity.",
+        "Indexes mixed formats immutably, detects duplicates, and cites stable media/shot IDs instead of private filenames.",
+        "Uses photos deliberately, preserves voice only when evidence supports the story, and validates audio continuity.",
+        "Keeps the final timeline original-backed and treats proxies as analysis evidence only.",
+        "Requires one hash-bound approval and maintains independent asset, motion, and timeline ownership.",
+        "Inspects decoded final-MP4 evidence before DELIVERED and never infers USER_ACCEPTED.",
+        "Stops at BLOCKED or CANCELLED rather than fabricating missing evidence."
+      ]
     },
     {
       "id": "visual-copy-delivery",
       "prompt": "Build a 4K 16:9, under-1.5 GB recap from /data/city-ride with concise English chapter headings and a one-line closing reflection. Generate only restrained route and transition visual components with Image Gen; every generated asset needs provenance, a crop decision, and a named motion owner. Keep it an experiential Vlog, deliver a final MP4, and inspect the delivered file rather than relying on export settings.",
       "expected_output": "A delivery-compliant project containing chapter copy, a generated-visual asset manifest and motion map, source-backed footage, and robust final-MP4 inspection evidence.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Does not claim that media, artifacts, or a final MP4 exist when /data/city-ride is unavailable.",
+        "Selects the release-grade cycling profile and preserves the requested English chapter and closing copy in the brief.",
+        "Keeps generated route and transition visuals interpretive, with provenance, crop/alpha proof, semantic tokens, and motion ownership.",
+        "Requires one Style Anchor, representative real-footage proof, and two semantically different final combination proofs after lock.",
+        "Requires one hash-bound director approval and does not request a second approval in the same run.",
+        "Renders from originals, enforces 4K MP4 and maximum-size requirements, and fails instead of silently lowering clarity.",
+        "Runs final hard gates and Agent review against the encoded MP4 before DELIVERED.",
+        "Allows at most three boundary-safe repairs and never infers USER_ACCEPTED."
+      ]
     }
   ]
 }

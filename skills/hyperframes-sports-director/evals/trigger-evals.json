@@ -1,105 +1,131 @@
 {
   "schema_version": "1.0",
+  "measurement_method": {
+    "kind": "internal-independent-frontmatter-classification",
+    "evaluators": ["agent-run-1", "agent-run-2", "agent-run-3"],
+    "input": "label-free id/prompt pairs",
+    "external_runner": "not-authorized-for-private-skill-transmission"
+  },
   "cases": [
     {
       "id": "trigger-cycling-mixed-media",
       "prompt": "Make a three-minute cycling vlog from my action-camera clips, phone photos, music, and FIT ride file; keep it experiential and inspect the final MP4.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-hiking-no-gps",
       "prompt": "Edit my hiking footage and stills into a short story; I have no GPS data, so say it is unavailable rather than guessing.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-swim-session",
       "prompt": "Turn underwater and deck-side pool swimming clips into a two-minute personal vlog with natural pool sound.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-race-interview",
       "prompt": "Build a trail-race recap from footage, a noisy finish-line interview, and background music while preserving source evidence.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-ski-weekend",
       "prompt": "Create an immersive ski-weekend film from helmet-camera clips, phone stills, and a voice memo; export a reviewed 4K MP4.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-kayak-route",
       "prompt": "Make a kayak-day Vlog from my original clips, photos, and GPX track with a restrained generated route visual and an asset manifest.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-climbing-session",
       "prompt": "Assemble a climbing-session story from two cameras and stills, removing setup shots and keeping gym ambience continuous.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-football-training",
       "prompt": "Edit my football training videos and photos into a 90-second participant-led recap with chapter cards and a final MP4 quality check.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-triathlon",
       "prompt": "Create a triathlon race-day film from original swim, bike, and run clips plus watch exports; do not invent missing split metrics.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "trigger-running-sunrise",
       "prompt": "Shape my sunrise run clips, phone photos, and narration into an experiential short, using generated transitions only with provenance and motion ownership.",
-      "should_trigger": true
+      "should_trigger": true,
+      "measurement": { "runs": 3, "triggers": 3, "judgments": [{"evaluator":"agent-run-1","triggered":true},{"evaluator":"agent-run-2","triggered":true},{"evaluator":"agent-run-3","triggered":true}] }
     },
     {
       "id": "near-miss-ffmpeg-concat",
       "prompt": "Give me a generic FFmpeg concat command for three MP4 files.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-product-launch",
       "prompt": "Write a product launch promo for a new smart watch.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-photo-retouch",
       "prompt": "Retouch this single running photo to remove a water bottle.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-data-analysis",
       "prompt": "Perform sports-data-only analysis on my cycling FIT data and calculate heart-rate zones.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-tiktok-ad",
       "prompt": "Script a vertical TikTok ad for an energy drink.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-fabricated-pace",
       "prompt": "Change my 10K result to show a faster pace than I actually ran.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-training-plan",
       "prompt": "Make me an eight-week marathon training plan.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-score-lookup",
       "prompt": "What was the final score of last night's basketball game?",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-video-transcode",
       "prompt": "How do I transcode a single MOV to H.264 with HandBrake?",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     },
     {
       "id": "near-miss-logo-design",
       "prompt": "Design a logo for my running club.",
-      "should_trigger": false
+      "should_trigger": false,
+      "measurement": { "runs": 3, "triggers": 0, "judgments": [{"evaluator":"agent-run-1","triggered":false},{"evaluator":"agent-run-2","triggered":false},{"evaluator":"agent-run-3","triggered":false}] }
     }
   ]
 }

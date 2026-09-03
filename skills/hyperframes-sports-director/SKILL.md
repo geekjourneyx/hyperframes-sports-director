@@ -82,3 +82,5 @@ Resume from the current integrity-valid state:
 Required output evidence includes the current project state, source/probe/shot/timeline chain, optional truthful activity chain, the one approval and frozen direction, accepted asset and motion contracts, `renders/final.mp4` plus provenance, final inspection metrics, decoded evidence, and `review/REVIEW_REPORT.md`.
 
 Run machine gates before Agent review. Automatic repair is limited to three attempts for allowed downstream roles and may not cross an approved boundary. A closed file that re-probes successfully is still not delivered until all hard gates pass and the Agent accepts composition, density, restraint, pacing, Style Anchor consistency, and transition meaning from the encoded MP4.
+
+Every completion or blocker handoff states the current project state, whether a final output actually exists, the used/remaining repair budget, and that `USER_ACCEPTED` remains separate from `DELIVERED`.
