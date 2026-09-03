@@ -11,7 +11,7 @@ import sharp from 'sharp';
 
 const SKILL_NAME = 'hyperframes-sports-director';
 const RELEASE_PROFILES = ['cycling', 'hiking', 'pool-swimming'];
-const REQUIRED_SCRIPTS = ['test', 'test:contracts', 'test:media', 'test:skill', 'eval', 'check', 'release:dry'];
+const REQUIRED_SCRIPTS = ['test', 'test:contracts', 'test:media', 'test:skill', 'eval', 'check', 'release:package', 'release:dry'];
 const ALLOWED_PACKAGE_KEYS = ['dependencies', 'engines', 'license', 'name', 'private', 'scripts', 'type', 'version'];
 const FORBIDDEN_EXTENSIONS = /\.(?:3gp|aac|aiff?|ape|avi|braw|cr2|cr3|dng|f4v|fit|flac|flv|gpx|insv|kml|m2ts|m4a|m4v|mkv|mov|mp3|mp4|mts|mxf|ogg|ogv|opus|orf|raf|raw|rsv|wav|webm|wma|wmv)$/i;
 const SECRET_FILENAME = /(?:^|\/)(?:\.env(?:\..*)?|\.npmrc|\.pypirc|credentials(?:\.json)?|id_rsa|id_ed25519|[^/]+\.(?:jks|keystore|pem|key|p12))$/i;
@@ -46,6 +46,16 @@ function yamlString(source, key) {
 function extension(path) {
   const match = path.match(/(\.[^./]+)$/);
   return match?.[1].toLowerCase() ?? '';
+}
+
+function workflowActionsArePinned(source) {
+  const references = [...source.matchAll(/^\s*-\s+uses:\s*["']?([^"'#\s]+)["']?/gm)]
+    .map((match) => match[1]);
+  return references.length > 0 && references.every((reference) => {
+    if (reference.startsWith('./')) return true;
+    const separator = reference.lastIndexOf('@');
+    return separator > 0 && /^[a-f0-9]{40}$/i.test(reference.slice(separator + 1));
+  });
 }
 
 async function walkFiles(root, { exclude = () => false } = {}) {
@@ -238,10 +248,20 @@ export async function checkRelease(repoRootInput, { version = '1.0.0', tag = nul
   if (!new RegExp(`^## \\[?${version.replaceAll('.', '\\.')}\\]?\\s+-`, 'm').test(changelog)) errors.push(`CHANGELOG heading must declare ${version}`);
   const ci = ciBytes?.toString('utf8') ?? '';
   if (!ci.includes('npm test') || !ci.includes('npm run eval') || !ci.includes('npm run check')) errors.push('CI workflow must run tests, evals, and release checks');
+  if (!workflowActionsArePinned(ci)) errors.push('CI workflow actions must be pinned to immutable 40-character commit SHAs');
   const release = releaseBytes?.toString('utf8') ?? '';
   if (!/tags:\s*\n\s*-\s*["']v\*["']/.test(release)) errors.push('release workflow must use the v* tag pattern');
-  if (!release.includes('needs: verify') || !release.includes('steps.version.outputs.version')) errors.push('release archive must wait for verification and derive its filename from package metadata');
+  if (!release.includes('needs: verify') || !release.includes('steps.version.outputs.version')) errors.push('release publication must wait for verification and derive its filename from package metadata');
   if (!release.includes('GITHUB_REF_NAME') || !release.includes('--tag')) errors.push('release workflow must reject a tag that differs from package metadata');
+  if (!release.includes('git rev-parse origin/main') || !release.includes('git/ref/heads/main') || !release.includes('GITHUB_SHA')) errors.push('release workflow must require the tag commit to equal remote main before verification and publication');
+  if (!release.includes('contents: write') || !release.includes('gh release create')) errors.push('release workflow must publish a GitHub Release');
+  if (!release.includes('git/ref/tags/$GITHUB_REF_NAME') || !release.includes('git/tags/$annotated_sha')) errors.push('release publication must resolve the remote tag to its commit');
+  if (!release.includes('actions/download-artifact@') || !release.includes('persist-credentials: false')) errors.push('release build and publication must isolate repository write credentials');
+  if (!release.includes('gh release view') || !release.includes('gh release download') || !release.includes('cmp --silent')) errors.push('release publication must verify exact existing assets when rerun');
+  if (!release.includes('isDraft') || !release.includes('isPrerelease') || !release.includes('[.assets[].name]')) errors.push('release publication must verify public release metadata and the exact asset set');
+  if (!release.includes('npm run release:package -- --tag "$GITHUB_REF_NAME"')) errors.push('release workflow must package the validated tag');
+  if (!release.includes('.skill.sha256')) errors.push('release workflow must publish the archive checksum');
+  if (!workflowActionsArePinned(release)) errors.push('release workflow actions must be pinned to immutable 40-character commit SHAs');
 
   const attribution = attributionBytes?.toString('utf8') ?? '';
   for (const record of upstream.upstreams ?? []) {

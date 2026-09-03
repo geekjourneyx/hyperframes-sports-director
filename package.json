@@ -14,6 +14,7 @@
     "test:skill": "node --test skills/hyperframes-sports-director/scripts/tests/check_structure.test.mjs skills/hyperframes-sports-director/scripts/tests/trigger_eval.test.mjs",
     "eval": "node skills/hyperframes-sports-director/scripts/score_eval.mjs --all-golden",
     "check": "node skills/hyperframes-sports-director/scripts/check_structure.mjs && node skills/hyperframes-sports-director/scripts/check_release.mjs --check-only",
+    "release:package": "node skills/hyperframes-sports-director/scripts/check_release.mjs --dry-run",
     "release:dry": "node skills/hyperframes-sports-director/scripts/check_release.mjs --dry-run"
   },
   "dependencies": {

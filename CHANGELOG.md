@@ -19,9 +19,16 @@ All notable changes to this project are documented in this file.
   and distinct `DELIVERED` and optional `USER_ACCEPTED` semantics.
 - Deterministic 100-point release evaluation with cycling, hiking, and pool
   swimming golden projects. Run it with `npm run eval`.
+- Tag-gated GitHub Releases containing a deterministic `.skill` archive and its
+  SHA-256 checksum after the full release suite passes on the current `main` commit.
+
+### Changed
+
+- Pinned third-party GitHub Actions to immutable commits and upgraded them to
+  Node 24-compatible releases so CI remains quiet and supply-chain inputs are auditable.
 
 ### For contributors
 
 - Added versioned JSON contracts, Node test suites, synthetic-media checks,
-  upstream lineage locks, CI gates, and a deterministic `.skill` release dry
-  run documented in `RELEASING.md`.
+  upstream lineage locks, CI gates, and a deterministic `.skill` packaging and
+  publication workflow documented in `RELEASING.md`.

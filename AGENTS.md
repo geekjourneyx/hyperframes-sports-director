@@ -15,17 +15,16 @@
 
 ## Execution handoff
 
-- Before implementation, read the design specification and the
-  `Execution Status and Remote Resume Point` table in the implementation plan.
-  That table decides which task is next; do not repeat an accepted task.
-- Treat remote `main` and accepted commits as authoritative. Abandoned or
-  uncommitted workspace files are not accepted implementation.
+- Before implementation, read the relevant tracked architecture and contract
+  documentation. Do not make ignored local planning files under
+  `docs/superpowers/` a handoff dependency.
+- Treat remote `main`, its tests, and accepted commits as authoritative.
+  Abandoned or uncommitted workspace files are not accepted implementation.
 - Execute one task at a time. Each task must complete its RED, GREEN, full-suite,
   independent review, and remote checkpoint before the next task begins.
-- The execution-status table remains the sole next-task authority; do not
-  hard-code a stale task number here. Tasks 10–11 prove the local
-  director-workbench approval and transactional design lock before production
-  Image Gen work begins; do not collapse those gates into the asset task.
+- When a tracked implementation plan exists, its current execution-status table
+  decides the next task. Otherwise, derive the next task from the user's request,
+  remote history, and current failing tests; never repeat accepted work.
 
 ## Evidence, privacy, and media
 
@@ -95,3 +94,26 @@
   output must contain no warnings or diagnostic noise.
 - Keep shared behavior in scripts and put orchestration guidance in the Skill
   and one-level-deep references. Do not add unrelated refactors.
+
+## Release discipline
+
+- `package.json`, `package-lock.json`, and the newest `CHANGELOG.md` heading must
+  declare the same version. The only valid release tag is `v<version>`.
+- Before release, use a clean tree with all proxy variables unset and run the
+  complete sequence in `RELEASING.md`, including tests, contracts, synthetic
+  media, Skill checks, golden evals, structural/release checks, deterministic
+  packaging, checksum verification, and Skill Creator validation.
+- Do not tag a local-only or stale commit. Push the release commit first, wait
+  for every required `main` check to pass, fetch `origin/main`, and verify that
+  local `HEAD` and the intended tag target both equal `origin/main`.
+- Release tags are annotated and immutable. Never move, replace, force-push, or
+  reuse a published version tag. If tagged contents need a code change, prepare
+  a new patch version.
+- Pushing the exact version tag is the explicit release authorization. The tag
+  workflow must independently validate the tag/version match and current-main
+  commit, rerun all repository gates, rebuild the archive, verify its checksum,
+  and create a GitHub Release containing both the `.skill` and
+  `.skill.sha256` assets. Skill Creator validation remains a local pre-tag gate.
+- An Actions artifact alone is not a release. Completion requires a successful
+  tag workflow plus a publicly readable GitHub Release whose assets and digest
+  match the locally approved package.

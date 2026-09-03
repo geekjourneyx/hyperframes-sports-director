@@ -129,6 +129,14 @@ release-grade claims for experimental profiles.
 - [Release process](RELEASING.md) and [changelog](CHANGELOG.md)
 - [Upstream derivation](docs/upstream-derivation.md), [attributions](ATTRIBUTIONS.md), and [license](LICENSE)
 
+## Releases
+
+Version tags publish a deterministic `.skill` archive and its SHA-256 checksum
+to [GitHub Releases](https://github.com/geekjourneyx/hyperframes-sports-director/releases).
+Each tag must match the package version and point to the current `main` commit;
+the release workflow then reruns every test and evaluation gate before publishing.
+See [RELEASING.md](RELEASING.md) for the maintainer checklist.
+
 <details>
 <summary>Engineering evidence and contributor references</summary>
 
