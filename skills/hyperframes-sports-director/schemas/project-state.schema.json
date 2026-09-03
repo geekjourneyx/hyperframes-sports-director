@@ -13,8 +13,10 @@
     "transitions": { "type": "array", "items": { "$ref": "#/$defs/transition" } },
     "gateEvidence": { "type": "array", "items": { "$ref": "#/$defs/gateEvidence" } },
     "invalidations": { "type": "array", "items": { "$ref": "#/$defs/invalidation" } },
+    "assetAcceptance": { "anyOf": [{ "$ref": "#/$defs/assetAcceptance" }, { "type": "null" }] },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
+  "allOf": [{ "if": { "properties": { "state": { "enum": ["STYLE_ANCHOR", "ASSET_PRODUCTION", "MOTION_COMPOSITION", "FINAL_RENDER", "FINAL_QA", "DELIVERED", "USER_ACCEPTED"] } }, "required": ["state"] }, "then": { "properties": { "assetAcceptance": { "$ref": "#/$defs/assetAcceptance" } }, "required": ["assetAcceptance"] } }],
   "additionalProperties": false,
   "$defs": {
     "state": { "enum": ["INTAKE", "CAPABILITY_CHECK", "SCAN", "ANALYZE", "ROUGH_CUT", "DIRECTOR_REVIEW_READY", "DIRECTOR_LOCK", "STYLE_ANCHOR", "ASSET_PRODUCTION", "MOTION_COMPOSITION", "FINAL_RENDER", "FINAL_QA", "DELIVERED", "USER_ACCEPTED", "BLOCKED", "CANCELLED"] },
@@ -37,6 +39,7 @@
     },
     "transition": { "type": "object", "required": ["from", "to", "at", "evidenceDigests", "evidenceRevisions"], "additionalProperties": false, "properties": { "from": { "$ref": "#/$defs/state" }, "to": { "$ref": "#/$defs/state" }, "at": { "type": "string", "format": "date-time" }, "kind": { "const": "invalidation" }, "rollbackTarget": { "$ref": "#/$defs/state" }, "evidenceDigests": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/digest" } }, "evidenceRevisions": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "integer", "minimum": 1 } } } },
     "invalidation": { "type": "object", "required": ["at", "fromState", "rollbackTarget", "disposition", "invalidatedRoles", "evidenceDigest"], "additionalProperties": false, "properties": { "at": { "type": "string", "format": "date-time" }, "fromState": { "$ref": "#/$defs/state" }, "rollbackTarget": { "$ref": "#/$defs/state" }, "disposition": { "enum": ["rollback", "blocked"] }, "invalidatedRoles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }, "evidenceDigest": { "$ref": "#/$defs/digest" } } },
+    "assetAcceptance": { "type": "object", "required": ["stage", "manifestRevision", "manifestDigest", "anchorDigest", "representativeDigest", "anchorIdentityDigest", "representativeIdentityDigest", "batchDigest", "acceptedAt"], "additionalProperties": false, "properties": { "stage": { "enum": ["anchor", "representative", "batch"] }, "manifestRevision": { "type": "integer", "minimum": 1 }, "manifestDigest": { "$ref": "#/$defs/digest" }, "anchorDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "representativeDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "anchorIdentityDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "representativeIdentityDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "batchDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "acceptedAt": { "type": "string", "format": "date-time" } } },
     "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
   }
 }

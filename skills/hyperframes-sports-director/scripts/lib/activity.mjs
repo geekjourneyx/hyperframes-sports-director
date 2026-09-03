@@ -285,6 +285,13 @@ function displayAuthority(coverage, primary) {
   return primary ? 'whole-activity' : 'visible-with-caveat';
 }
 
+function timeSynchronizedWindow(syncMap, window) {
+  const interval = syncMap?.validInterval;
+  return syncMap?.status === 'available' && interval
+    && window.destinationInSeconds >= interval.startSeconds
+    && window.destinationOutSeconds <= interval.endSeconds;
+}
+
 export function buildDataOverlayAllowList(activity, syncMap, options = {}) {
   if (activity?.status !== 'available') return { status: 'unavailable', activityDigest: null, syncMapDigest: null, overlays: [] };
   const overlays = [];
@@ -298,7 +305,7 @@ export function buildDataOverlayAllowList(activity, syncMap, options = {}) {
       overlayId: `overlay-${metricId.replace(/^average/, '').replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
       metricId: `metrics.${metricId}`,
       displayAuthority: display,
-      syncAuthority: syncMap?.status === 'available' ? 'time-synchronized' : 'whole-activity',
+      syncAuthority: timeSynchronizedWindow(syncMap, window) ? 'time-synchronized' : 'whole-activity',
       wording: options.wording?.[metricId] ?? metricId,
       colorToken: options.colorTokens?.[metricId] ?? 'color.dataPrimary',
       destinationInSeconds: window.destinationInSeconds,
@@ -306,4 +313,48 @@ export function buildDataOverlayAllowList(activity, syncMap, options = {}) {
     });
   }
   return { status: overlays.length > 0 ? 'available' : 'unavailable', activityDigest: null, syncMapDigest: null, overlays };
+}
+
+export function validateDataOverlayAuthority(activity, syncMap, dataOverlays, options = {}) {
+  const errors = [];
+  const expected = buildDataOverlayAllowList(activity, syncMap, { primaryMetricIds: options.primaryMetricIds });
+  const expectedByMetric = new Map(expected.overlays.map((overlay) => [overlay.metricId, overlay]));
+  const actualByMetric = new Map((dataOverlays?.overlays ?? []).map((overlay) => [overlay.metricId, overlay]));
+  if (dataOverlays?.status !== expected.status) errors.push('overlay status does not match current activity coverage');
+  if (actualByMetric.size !== (dataOverlays?.overlays ?? []).length
+    || actualByMetric.size !== expectedByMetric.size
+    || [...expectedByMetric.keys()].some((metricId) => !actualByMetric.has(metricId))) {
+    errors.push('overlay inventory does not match the metrics authorized by current coverage');
+  }
+  for (const [metricId, overlay] of actualByMetric) {
+    const authority = expectedByMetric.get(metricId);
+    if (!authority || overlay.displayAuthority !== authority.displayAuthority) {
+      errors.push(`${metricId} display authority does not match current coverage`);
+    }
+    const expectedSync = timeSynchronizedWindow(syncMap, overlay) ? 'time-synchronized' : 'whole-activity';
+    if (overlay.syncAuthority !== expectedSync) errors.push(`${metricId} sync authority does not match the current synchronized interval`);
+  }
+  if (expected.status === 'available') {
+    if (dataOverlays.activityDigest !== activity?.integrity?.digest || dataOverlays.syncMapDigest !== syncMap?.integrity?.digest
+      || dataOverlays.integrity?.upstream?.activity !== activity?.integrity?.digest
+      || dataOverlays.integrity?.upstream?.syncMap !== syncMap?.integrity?.digest) {
+      errors.push('overlay lineage does not bind current activity and sync-map artifacts');
+    }
+  } else if (dataOverlays?.activityDigest !== null || dataOverlays?.syncMapDigest !== null) {
+    errors.push('unavailable overlays cannot retain activity or sync-map authority');
+  }
+  const route = activity?.route;
+  const points = route?.points ?? [];
+  const genuineRoute = route?.status === 'available' && points.length >= 2 && route.pointCount === points.length
+    && points[0]?.distanceMeters === 0
+    && points.every((point, index) => index === 0 || point.distanceMeters > points[index - 1].distanceMeters)
+    && route.trimmedRouteId === `trimmed-route-${digest(points).slice(0, 16)}`;
+  const expectedRoute = genuineRoute
+    ? { status: 'available', trimmedRouteId: route.trimmedRouteId }
+    : { status: 'unavailable', trimmedRouteId: null };
+  if (dataOverlays?.publicRoute?.status !== expectedRoute.status
+    || dataOverlays?.publicRoute?.trimmedRouteId !== expectedRoute.trimmedRouteId) {
+    errors.push('public route does not bind a genuine current privacy-trimmed derivative');
+  }
+  return { valid: errors.length === 0, errors };
 }

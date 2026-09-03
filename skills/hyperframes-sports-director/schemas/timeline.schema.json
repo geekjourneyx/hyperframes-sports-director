@@ -10,12 +10,14 @@
     "status": { "enum": ["draft", "available", "frozen", "superseded"] }, "phase": { "enum": ["rough", "final"] },
     "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" }, "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
     "assetRevision": { "type": "string", "pattern": "^assets-[a-zA-Z0-9-]+$" }, "motionRevision": { "type": "string", "pattern": "^motion-[a-zA-Z0-9-]+$" },
+    "assetManifestDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "motionMapDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "dataOverlaysDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
     "sourceProbeDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
     "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
     "music": { "$ref": "#/$defs/music" },
     "warningDecisions": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/warningDecision" } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
+  "allOf": [{ "if": { "properties": { "phase": { "const": "final" } }, "required": ["phase"] }, "then": { "properties": { "assetManifestDigest": {}, "motionMapDigest": {}, "dataOverlaysDigest": {} }, "required": ["assetManifestDigest", "motionMapDigest", "dataOverlaysDigest"] } }],
   "additionalProperties": false,
   "$defs": {
     "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

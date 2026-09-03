@@ -154,7 +154,9 @@ function checkProjectState(value, schema, errors) {
       addSemantic(errors, schema, 'E_STATE_HISTORY', `/transitions/${index}/from`, 'transition history must be contiguous');
     }
     const records = value.gateEvidence.filter((evidence) => evidence.gate === transition.to
-      && Object.hasOwn(transition.evidenceDigests, evidence.role));
+      && transition.evidenceDigests[evidence.role] === evidence.digest
+      && transition.evidenceRevisions[evidence.role] === evidence.revision
+      && evidence.timestamp === transition.at);
     const digestRoles = Object.keys(transition.evidenceDigests).sort();
     const revisionRoles = Object.keys(transition.evidenceRevisions).sort();
     const recordRoles = records.map(({ role }) => role).sort();
@@ -187,6 +189,42 @@ function checkProjectState(value, schema, errors) {
     addSemantic(errors, schema, 'E_STATE_CURRENT', '/state', 'state must equal the final transition destination');
   }
   const finalTransition = value.transitions.at(-1);
+  const acceptanceStates = new Set(['STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED']);
+  if (acceptanceStates.has(value.state) && !value.assetAcceptance) {
+    addSemantic(errors, schema, 'E_ASSET_ACCEPTANCE_REQUIRED', '/assetAcceptance', 'post-lock production states require current manifest acceptance authority');
+  }
+  if (!acceptanceStates.has(value.state) && value.assetAcceptance) {
+    addSemantic(errors, schema, 'E_ASSET_ACCEPTANCE_STALE', '/assetAcceptance', 'asset acceptance must be cleared outside applicable production states');
+  }
+  if (value.assetAcceptance && acceptanceStates.has(value.state)) {
+    const acceptance = value.assetAcceptance;
+    const anchorTransition = value.transitions.findLast(({ to, kind }) => to === 'STYLE_ANCHOR' && kind !== 'invalidation');
+    const productionTransition = value.transitions.findLast(({ to, kind }) => to === 'ASSET_PRODUCTION' && kind !== 'invalidation');
+    const anchorRecord = value.state === 'STYLE_ANCHOR'
+      ? value.gateEvidence.findLast(({ gate, role, validity }) => gate === 'STYLE_ANCHOR' && role === 'STYLE_ANCHOR' && validity === 'valid')
+      : value.gateEvidence.findLast(({ gate, role, validity }) => gate === 'ASSET_PRODUCTION' && role === 'STYLE_ANCHOR' && validity === 'valid');
+    const representativeRecord = value.gateEvidence.findLast(({ gate, role, validity }) => gate === 'ASSET_PRODUCTION' && role === 'REPRESENTATIVE_COMBINATION' && validity === 'valid');
+    const anchorOnly = value.state === 'STYLE_ANCHOR';
+    const downstream = !['STYLE_ANCHOR', 'ASSET_PRODUCTION'].includes(value.state);
+    const stageShapeValid = anchorOnly
+      ? acceptance.stage === 'anchor' && acceptance.representativeDigest === null && acceptance.batchDigest === null
+      : downstream ? acceptance.stage === 'batch' && DIGEST.test(acceptance.batchDigest ?? '')
+        : (acceptance.stage === 'representative' ? acceptance.batchDigest === null : acceptance.stage === 'batch' && DIGEST.test(acceptance.batchDigest ?? ''));
+    const rollback = finalTransition.kind === 'invalidation';
+    const evidenceValid = anchorOnly
+      ? anchorTransition && acceptance.anchorDigest === anchorRecord?.digest
+        && (rollback ? acceptance.acceptedAt === finalTransition.at
+          : acceptance.manifestRevision === anchorRecord?.revision && acceptance.acceptedAt === anchorTransition.at)
+      : productionTransition && acceptance.anchorDigest === anchorRecord?.digest
+        && acceptance.representativeDigest === representativeRecord?.digest
+        && (acceptance.stage !== 'representative' || (acceptance.manifestRevision === representativeRecord?.revision
+          && acceptance.acceptedAt === productionTransition.at))
+        && Date.parse(acceptance.acceptedAt) >= Date.parse(productionTransition.at)
+        && (!downstream || Date.parse(acceptance.acceptedAt) <= Date.parse(value.stateEnteredAt));
+    if (!stageShapeValid || !evidenceValid) {
+      addSemantic(errors, schema, 'E_ASSET_ACCEPTANCE_STALE', '/assetAcceptance', 'asset acceptance must exactly bind the current anchor and representative gate evidence and stage history');
+    }
+  }
   if (value.previousState !== finalTransition.from) {
     addSemantic(errors, schema, 'E_STATE_PREVIOUS', '/previousState', 'previousState must equal the final transition source');
   }
@@ -199,7 +237,9 @@ function checkProjectState(value, schema, errors) {
       : finalTransition;
     const currentRecords = currentGateTransition
       ? value.gateEvidence.filter((evidence) => evidence.gate === value.state
-        && Object.hasOwn(currentGateTransition.evidenceDigests, evidence.role))
+        && currentGateTransition.evidenceDigests[evidence.role] === evidence.digest
+        && currentGateTransition.evidenceRevisions[evidence.role] === evidence.revision
+        && evidence.timestamp === currentGateTransition.at)
       : [];
     try {
       validateGateEvidence(
@@ -454,7 +494,18 @@ function semanticErrors(schema, value) {
     checkExactLineage(value, schema, errors, { activity: value.activityDigest, syncMap: value.syncMapDigest });
   }
   if (name === 'asset-manifest' && (value.assets.length > 0 || value.status !== 'draft')) {
-    checkExactLineage(value, schema, errors, { designSystem: value.designSystemDigest, lookProfile: value.lookProfileDigest });
+    checkExactLineage(value, schema, errors, { assetPlan: value.assetPlanDigest, designSystem: value.designSystemDigest, lookProfile: value.lookProfileDigest });
+    for (let index = 0; index < value.assets.length; index += 1) {
+      const asset = value.assets[index];
+      if (['generated-interpretive', 'generated-decorative'].includes(asset.provenance?.kind) && asset.documentaryStatus === 'documentary') {
+        addSemantic(errors, schema, 'E_GENERATED_DOCUMENTARY', `/assets/${index}/documentaryStatus`, 'generated scenery or components cannot claim documentary status');
+      }
+    }
+    const batches = value.acceptance?.batches ?? [];
+    if (batches.some((entry, index) => index > 0 && entry.revision <= batches[index - 1].revision)
+      || (value.status === 'frozen' && batches.at(-1)?.revision !== value.revision)) {
+      addSemantic(errors, schema, 'E_ASSET_ACCEPTANCE_HISTORY', '/acceptance/batches', 'accepted batch revisions must be strictly monotonic and the frozen manifest must end at its current revision');
+    }
   }
   if (name === 'design-system' || name === 'look-profile') checkLifecycle(value, schema, errors);
   if (name === 'project-state') checkProjectState(value, schema, errors);

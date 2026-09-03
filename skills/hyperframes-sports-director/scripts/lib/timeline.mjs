@@ -170,7 +170,7 @@ function validateShotBinding(item, shot, index, errors) {
   }
 }
 
-export function validateTimeline({ phase, probe, shots, transcript, assetManifest, motionMap, timeline, profiles }) {
+export function validateTimeline({ phase, probe, shots, transcript, assetManifest, motionMap, dataOverlays, timeline, profiles }) {
   const errors = [];
   const warnings = [];
   const actualPhase = phase ?? timeline?.phase;
@@ -217,11 +217,49 @@ export function validateTimeline({ phase, probe, shots, transcript, assetManifes
   )));
   errors.push(...validateAudioContinuity(timeline, transcript).errors);
   if (actualPhase === 'final') {
-    const assets = new Set((assetManifest?.assets ?? []).map(({ assetId }) => assetId));
+    const assetEntries = assetManifest?.assets ?? [];
+    const assets = new Set(assetEntries.map(({ id, assetId }) => id ?? assetId));
+    const generatedDocumentary = new Set(assetEntries.filter(({ provenance, documentaryStatus }) =>
+      ['generated-interpretive', 'generated-decorative'].includes(provenance?.kind) && documentaryStatus === 'documentary')
+      .map(({ id, assetId }) => id ?? assetId));
+    const currentDocumentaryEvidence = new Map((dataOverlays?.overlays ?? []).map(({ overlayId }) => [overlayId,
+      { kind: 'data-overlay', digest: dataOverlays.integrity?.digest }]));
+    if (dataOverlays?.publicRoute?.status === 'available' && dataOverlays.publicRoute.trimmedRouteId) {
+      currentDocumentaryEvidence.set(dataOverlays.publicRoute.trimmedRouteId,
+        { kind: 'trimmed-route', digest: dataOverlays.integrity?.digest });
+    }
+    const documentaryActivity = new Map(assetEntries.filter(({ provenance }) =>
+      provenance?.kind === 'code-rendered-activity').map((asset) => [asset.id ?? asset.assetId, asset]));
+    const sourceSheets = new Set(assetEntries.filter(({ sourceKind }) => ['component-sheet', 'source-sheet'].includes(sourceKind)).map(({ id, assetId }) => id ?? assetId));
     const owners = new Set((motionMap?.owners ?? []).map(({ ownerId }) => ownerId));
     if (assetManifest?.status !== 'frozen' || motionMap?.status !== 'frozen') errors.push(diagnostic('E_FINAL_DESIGN_OWNERSHIP', '/', 'final timeline requires frozen asset and motion contracts'));
+    if (timeline?.designRevision !== assetManifest?.designRevision
+      || timeline?.lookRevision !== assetManifest?.lookRevision
+      || timeline?.assetRevision !== assetManifest?.assetRevision
+      || timeline?.motionRevision !== motionMap?.motionRevision
+      || motionMap?.designRevision !== assetManifest?.designRevision
+      || motionMap?.assetRevision !== assetManifest?.assetRevision
+      || timeline?.assetManifestDigest !== assetManifest?.integrity?.digest
+      || timeline?.motionMapDigest !== motionMap?.integrity?.digest
+      || timeline?.dataOverlaysDigest !== dataOverlays?.integrity?.digest) {
+      errors.push(diagnostic('E_TIMELINE_PRODUCTION_AUTHORITY', '/',
+        'final timeline must bind current design, Look, asset, motion, and data-overlay revisions and digests'));
+    }
     for (let index = 0; index < items.length; index += 1) {
-      for (const id of items[index].assetReferences ?? []) if (!assets.has(id)) errors.push(diagnostic('E_ASSET_REFERENCE', `/items/${index}/assetReferences`, `unresolved asset ${id}`));
+      for (const id of items[index].assetReferences ?? []) {
+        if (!assets.has(id)) errors.push(diagnostic('E_ASSET_REFERENCE', `/items/${index}/assetReferences`, `unresolved asset ${id}`));
+        else if (sourceSheets.has(id)) errors.push(diagnostic('E_TIMELINE_SOURCE_SHEET', `/items/${index}/assetReferences`, 'TIMELINE cannot reference an uncropped source sheet directly'));
+        else if (generatedDocumentary.has(id)) errors.push(diagnostic('E_GENERATED_DOCUMENTARY', `/items/${index}/assetReferences`, 'generated scenery and components cannot enter the final timeline as documentary evidence'));
+        else if (documentaryActivity.has(id)) {
+          const asset = documentaryActivity.get(id);
+          const binding = asset.provenance?.evidenceBinding;
+          const current = currentDocumentaryEvidence.get(binding?.id);
+          if (asset.provenance?.kind !== 'code-rendered-activity' || current?.kind !== binding?.kind
+            || current?.digest !== binding?.digest || (binding?.kind === 'trimmed-route' && binding.privacyStatus !== 'trimmed')) {
+            errors.push(diagnostic('E_DOCUMENTARY_ACTIVITY_BINDING', `/items/${index}/assetReferences`, 'final documentary activity must resolve current normalized overlay data or a privacy-trimmed route derivative'));
+          }
+        }
+      }
       for (const id of items[index].motionReferences ?? []) if (!owners.has(id)) errors.push(diagnostic('E_MOTION_REFERENCE', `/items/${index}/motionReferences`, `unresolved motion owner ${id}`));
       const transitionOwner = items[index].transition?.ownerId;
       if (items[index].transition?.kind !== 'none'

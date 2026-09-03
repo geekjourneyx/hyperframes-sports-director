@@ -145,7 +145,13 @@ function renderTimelineItem(item, total) {
 function renderCurrentGateEvidence(model) {
   const records = model.currentGateEvidence ?? [];
   if (!records.length) return '';
-  return `<section class="rail-section"><h3>CURRENT GATE EVIDENCE</h3><p class="rail-copy">${escapeHtml(model.state.state.replaceAll('_', ' '))} · revision ${model.state.revision}</p><ul class="rail-list">${records.map(({ role, digest }) => `<li>${escapeHtml(role.replaceAll('_', ' '))} · ${escapeHtml(digest.slice(0, 12))}</li>`).join('')}</ul></section>`;
+  const assets = model.assetProgress ? ` · assets r${model.assetProgress.revision} · ${model.assetProgress.digest.slice(0, 12)}` : '';
+  const currentAcceptance = model.assetProgress?.acceptance
+    ? `<p class="rail-copy">Current acceptance · ${escapeHtml(model.assetProgress.acceptance.stage)}</p>` : '';
+  const history = model.assetProgress?.historicalManifestAcceptance;
+  const historicalAcceptance = history
+    ? `<p class="rail-copy">Historical manifest history · ${history.batches.length} batch${history.batches.length === 1 ? '' : 'es'}</p>` : '';
+  return `<section class="rail-section"><h3>CURRENT GATE EVIDENCE</h3><p class="rail-copy">${escapeHtml(model.state.state.replaceAll('_', ' '))} · revision ${model.state.revision}${escapeHtml(assets)}</p>${currentAcceptance}${historicalAcceptance}<ul class="rail-list">${records.map(({ role, digest }) => `<li>${escapeHtml(role.replaceAll('_', ' '))} · ${escapeHtml(digest.slice(0, 12))}</li>`).join('')}</ul></section>`;
 }
 
 function tokenStyle() {

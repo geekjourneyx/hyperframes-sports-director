@@ -8,6 +8,9 @@
   "lookRevision": "look-1",
   "designSystemDigest": null,
   "lookProfileDigest": null,
+  "assetPlanDigest": null,
+  "selectedAssetPlanDigest": null,
+  "acceptance": { "anchorDigest": null, "representativeDigest": null, "anchorIdentity": null, "representativeIdentity": null, "batches": [] },
   "assets": [],
   "integrity": { "digest": null, "upstream": {} }
 }

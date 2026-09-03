@@ -6,7 +6,7 @@ import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
 import { loadDirectionSources, validateDirectionProposals, validateProposalPreviewArtifacts } from './direction-proposals.mjs';
 import { renderWorkbenchHtml } from './director-workbench.mjs';
-import { assertNoPendingRepairTransaction } from './invalidation.mjs';
+import { acquireRepairGuard, assertNoPendingAssetTransaction, assertNoPendingRepairTransaction, assertRepairGuardOwnership, releaseRepairGuard } from './invalidation.mjs';
 import { projectPath, sha256File } from './media.mjs';
 import { validateGateEvidence } from './project-state.mjs';
 
@@ -16,6 +16,7 @@ const LOCKED_STATES = new Set(['DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTIO
 const LOCK_EVIDENCE_STATES = new Set([...LOCKED_STATES, 'BLOCKED', 'CANCELLED']);
 export const LOCK_WORKBENCH_SNAPSHOT_PATH = 'review/director-lock.snapshot.html';
 const CURRENT_WORKBENCH_PATH = 'review/director-workbench.html';
+const ASSET_RECOVERY_CAPABILITY = Symbol('assetRecoveryCapability');
 
 export class ApprovalError extends Error {
   constructor(code, message, details = {}) { super(message); this.name = 'ApprovalError'; this.code = code; Object.assign(this, details); }
@@ -240,20 +241,23 @@ function parseLockSnapshot(html) {
 export function renderLockedWorkbench(state, selectedCandidate, workbenchModel) {
   return renderLockSnapshotModel(buildLockedWorkbenchModel(state, selectedCandidate, workbenchModel));
 }
-function currentWorkbenchBinding(state, snapshotDigest, selectedCandidate) {
+function currentWorkbenchBinding(state, snapshotDigest, selectedCandidate, assetManifest = null) {
   return computeArtifactDigest({
     stateRevision: state.revision, stateDigest: state.integrity.digest,
     lockSnapshotPath: LOCK_WORKBENCH_SNAPSHOT_PATH, lockSnapshotDigest: snapshotDigest,
     selectedCandidateId: selectedCandidate.candidateId, selectedCandidateDigest: computeArtifactDigest(selectedCandidate),
+    assetManifestRevision: assetManifest?.revision ?? null, assetManifestDigest: assetManifest?.integrity?.digest ?? null,
   });
 }
-function buildCurrentWorkbenchModel(state, snapshotDigest, selectedCandidate, snapshotModel) {
+function buildCurrentWorkbenchModel(state, snapshotDigest, selectedCandidate, snapshotModel, assetManifest = null) {
   const model = structuredClone(snapshotModel);
   model.state = workbenchStateView(state, true);
   model.proposals.candidates = [structuredClone(selectedCandidate)];
   model.approvalAvailable = false;
   model.lockedBinding = lockedWorkbenchBinding(state, selectedCandidate);
-  model.currentViewBinding = currentWorkbenchBinding(state, snapshotDigest, selectedCandidate);
+  model.assetProgress = assetManifest ? { revision: assetManifest.revision, digest: assetManifest.integrity.digest,
+    acceptance: structuredClone(state.assetAcceptance), historicalManifestAcceptance: structuredClone(assetManifest.acceptance) } : null;
+  model.currentViewBinding = currentWorkbenchBinding(state, snapshotDigest, selectedCandidate, assetManifest);
   model.currentGateEvidence = currentGateEvidence(state);
   return model;
 }
@@ -300,9 +304,13 @@ async function readCommittedWorkbenchEvidence(projectRoot) {
   return { html, digest, model, metadata: file.metadata };
 }
 
-async function validateImmutableDirectionLockEvidence(projectRoot) {
+export async function validateImmutableDirectionLockEvidence(projectRoot, internal = {}) {
   try { await assertNoPendingRepairTransaction(projectRoot); }
   catch (error) { fail(error.code ?? 'E_REPAIR_PENDING', error.message, { cause: error }); }
+  if (!internal[ASSET_RECOVERY_CAPABILITY]) {
+    try { await assertNoPendingAssetTransaction(projectRoot); }
+    catch (error) { fail(error.code ?? 'E_ASSET_TRANSACTION_PENDING', error.message, { cause: error }); }
+  }
   const [design, look, state, approval, proposals, snapshot] = await Promise.all([
     readContract(projectRoot, 'direction/DESIGN_SYSTEM.json', 'design-system', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/LOOK_PROFILE.json', 'look-profile', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'PROJECT_STATE.json', 'project-state', 'E_DIRECTION_UNCOMMITTED'), readContract(projectRoot, 'direction/DIRECTOR_APPROVAL.json', 'director-approval', 'E_DIRECTION_PAIR_INVALID'), readContract(projectRoot, 'direction/DIRECTION_PROPOSALS.json', 'direction-proposals', 'E_DIRECTION_PAIR_INVALID'), readCommittedWorkbenchEvidence(projectRoot),
   ]);
@@ -340,6 +348,11 @@ async function validateImmutableDirectionLockEvidence(projectRoot) {
   return { design, look, state, approval, workbenchDigest, workbenchSnapshotPath: LOCK_WORKBENCH_SNAPSHOT_PATH, selectedCandidate: selected, snapshotModel: snapshot.model };
 }
 
+export async function validateDirectionDuringAssetRecovery(projectRoot, mutationGuard) {
+  await assertRepairGuardOwnership(projectRoot, mutationGuard);
+  return validateImmutableDirectionLockEvidence(projectRoot, { [ASSET_RECOVERY_CAPABILITY]: true });
+}
+
 export async function validateCommittedDirection(projectRoot) {
   const committed = await validateImmutableDirectionLockEvidence(projectRoot);
   if (!LOCKED_STATES.has(committed.state.state)) fail('E_DIRECTION_UNCOMMITTED', 'consumers require a current production-authorized direction state');
@@ -353,30 +366,74 @@ export async function validateCommittedDirection(projectRoot) {
   return committed;
 }
 
-export async function buildPostLockWorkbench(projectRoot) {
-  const committed = await validateImmutableDirectionLockEvidence(projectRoot);
+async function readCurrentAssetManifest(projectRoot, projectState) {
+  if (!['STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED'].includes(projectState.state)) return null;
+  try {
+    const manifest = await readContract(projectRoot, 'direction/ASSET_MANIFEST.json', 'asset-manifest', 'E_DIRECTION_PAIR_INVALID');
+    const currentState = await readContract(projectRoot, 'PROJECT_STATE.json', 'project-state', 'E_DIRECTION_PAIR_INVALID');
+    if (!stableEqual(currentState, projectState)) fail('E_DIRECTION_PAIR_INVALID', 'PROJECT_STATE changed while capturing the current asset acceptance pair');
+    const accepted = projectState.assetAcceptance;
+    const batchDigest = manifest.acceptance?.batches?.at(-1)?.digest ?? null;
+    const rollbackAnchor = projectState.state === 'STYLE_ANCHOR' && projectState.transitions.at(-1)?.kind === 'invalidation';
+    if (!accepted || accepted.manifestRevision !== manifest.revision || accepted.manifestDigest !== manifest.integrity.digest
+      || accepted.anchorDigest !== manifest.acceptance?.anchorDigest
+      || (rollbackAnchor ? accepted.stage !== 'anchor' || accepted.representativeDigest !== null || accepted.batchDigest !== null
+        : accepted.representativeDigest !== manifest.acceptance?.representativeDigest || accepted.batchDigest !== batchDigest)) {
+      fail('E_DIRECTION_PAIR_INVALID', 'current workbench asset manifest does not match PROJECT_STATE acceptance authority');
+    }
+    return manifest;
+  }
+  catch (error) {
+    if (error.cause?.code === 'ENOENT' && !projectState.assetAcceptance) return null;
+    throw error;
+  }
+}
+
+export async function buildPostLockWorkbench(projectRoot, dependencies = {}) {
+  if (!dependencies.mutationGuard) {
+    const mutationGuard = await acquireRepairGuard(projectRoot, dependencies.guardHooks);
+    try { return await buildPostLockWorkbench(projectRoot, { ...dependencies, mutationGuard }); }
+    finally { await releaseRepairGuard(projectRoot, mutationGuard); }
+  }
+  await assertRepairGuardOwnership(projectRoot, dependencies.mutationGuard);
+  const committed = await validateImmutableDirectionLockEvidence(projectRoot,
+    dependencies[ASSET_RECOVERY_CAPABILITY] ? { [ASSET_RECOVERY_CAPABILITY]: true } : {});
+  if (dependencies.afterDirectionRead) await dependencies.afterDirectionRead(committed);
+  const assetManifest = await readCurrentAssetManifest(projectRoot, committed.state);
   const html = committed.state.state === 'DIRECTOR_LOCK'
     ? renderLockSnapshotModel(committed.snapshotModel)
-    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel));
+    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel, assetManifest));
   await writeCurrentWorkbench(projectRoot, html);
   return {
     ok: true, path: CURRENT_WORKBENCH_PATH, digest: createHash('sha256').update(html).digest('hex'),
-    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate),
+    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate, assetManifest),
     stateRevision: committed.state.revision, lockSnapshotPath: committed.workbenchSnapshotPath, lockSnapshotDigest: committed.workbenchDigest,
   };
 }
 
-export async function validatePostLockWorkbench(projectRoot) {
+export async function buildPostLockWorkbenchDuringAssetRecovery(projectRoot, mutationGuard) {
+  await assertRepairGuardOwnership(projectRoot, mutationGuard);
+  return buildPostLockWorkbench(projectRoot, { mutationGuard, [ASSET_RECOVERY_CAPABILITY]: true });
+}
+
+export async function validatePostLockWorkbench(projectRoot, dependencies = {}) {
+  if (!dependencies.mutationGuard) {
+    const mutationGuard = await acquireRepairGuard(projectRoot, dependencies.guardHooks);
+    try { return await validatePostLockWorkbench(projectRoot, { ...dependencies, mutationGuard }); }
+    finally { await releaseRepairGuard(projectRoot, mutationGuard); }
+  }
+  await assertRepairGuardOwnership(projectRoot, dependencies.mutationGuard);
   const committed = await validateImmutableDirectionLockEvidence(projectRoot);
+  const assetManifest = await readCurrentAssetManifest(projectRoot, committed.state);
   const currentFile = await readRegularWorkbenchFile(join(projectRoot, CURRENT_WORKBENCH_PATH), 'E_WORKBENCH_CURRENT_STALE', 'current post-lock workbench is missing or is not a regular file');
   const current = currentFile.bytes.toString('utf8');
   const expected = committed.state.state === 'DIRECTOR_LOCK'
     ? renderLockSnapshotModel(committed.snapshotModel)
-    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel));
+    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel, assetManifest));
   if (current !== expected) fail('E_WORKBENCH_CURRENT_STALE', 'current post-lock workbench does not match its current-state binding');
   return {
     ok: true, path: CURRENT_WORKBENCH_PATH, digest: createHash('sha256').update(current).digest('hex'),
-    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate),
+    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate, assetManifest),
     stateRevision: committed.state.revision, lockSnapshotDigest: committed.workbenchDigest,
   };
 }

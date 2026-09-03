@@ -8,7 +8,7 @@ const DIGEST = /^[0-9a-f]{64}$/;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/;
 const GATE_REQUIREMENTS = {
   DIRECTOR_LOCK: { code: 'E_DIRECTOR_LOCK_GATE', roles: { DESIGN_SYSTEM: 'frozen', LOOK_PROFILE: 'frozen', DIRECTOR_APPROVAL: 'consumed', WORKBENCH: 'state-bound' } },
-  STYLE_ANCHOR: { code: 'E_STYLE_ANCHOR_GATE', roles: { DESIGN_SYSTEM: 'frozen', LOOK_PROFILE: 'frozen', ASSET_PLAN: 'approved' } },
+  STYLE_ANCHOR: { code: 'E_STYLE_ANCHOR_GATE', roles: { DESIGN_SYSTEM: 'frozen', LOOK_PROFILE: 'frozen', ASSET_PLAN: 'approved', STYLE_ANCHOR: 'accepted' } },
   ASSET_PRODUCTION: { code: 'E_ASSET_PRODUCTION_GATE', roles: { STYLE_ANCHOR: 'accepted', REPRESENTATIVE_COMBINATION: 'accepted' } },
   DELIVERED: {
     code: 'E_DELIVERY_GATE',
@@ -145,6 +145,7 @@ export function blockCurrentRun(projectState, boundary, context) {
   const revision = projectState.revision + 1;
   const record = evidenceRecord('BLOCKED', 'APPROVAL_BOUNDARY_CROSSED', revision, digest, context.timestamp, context.producerCommand, audit.code);
   result.previousState = projectState.state;
+  delete result.assetAcceptance;
   result.state = 'BLOCKED';
   result.stateEnteredAt = context.timestamp;
   result.revision = revision;

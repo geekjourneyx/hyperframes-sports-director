@@ -26,3 +26,11 @@ independently implemented responsibilities.
 - `skills/hyperframes-sports-director/references/activity-data.md` restates the
   adapted activity truth, availability, coverage, time-sync, and privacy SOP
   for this project's three-chain architecture.
+- `skills/hyperframes-sports-director/scripts/lib/image-assets.mjs`, the three
+  image-asset CLIs, and `references/{imagegen-asset-pipeline,asset-choreography-and-render-qa,visual-standard}.md`
+  adapt HyperFrames Motion Director's visual-world, Style Anchor,
+  component-sheet, separate-Hero, crop, alpha-proof, combination-test, and
+  motion-boundary workflow at the exact revision above. The implementation is
+  original to this repository and extends the workflow with sports narrative
+  roles, lock-bound provenance, effective-resolution gates, and documentary
+  truth constraints.

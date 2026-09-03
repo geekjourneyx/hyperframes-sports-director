@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
-import test from 'node:test';
+import nodeTest from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { computeArtifactDigest } from '../lib/contracts.mjs';
 import * as approvalModule from '../lib/approval.mjs';
@@ -22,13 +23,28 @@ import {
   classifyApprovedRepair,
   computeInvalidationClosure,
   persistApprovedRepair,
+  rollbackStateForInvalidation,
 } from '../lib/invalidation.mjs';
 import { validateTransition } from '../lib/project-state.mjs';
 import { lockDirection } from '../lock_direction.mjs';
 
 const NOW = '2026-09-01T12:00:00.000Z';
+const test = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href ? nodeTest : () => {};
 const HEX = (value) => computeArtifactDigest({ value });
 const SHA = (value) => createHash('sha256').update(value).digest('hex');
+
+function fixtureAnchorIdentity(revision) {
+  return { assetId: 'asset-style-anchor', sourceDigest: HEX(`STYLE_ANCHOR:${revision}`),
+    narrativeRole: 'journey_anchor', semanticColorTokens: ['color.background'],
+    visualAcceptanceDigest: HEX(`STYLE_ANCHOR_VISUAL_ACCEPTANCE:${revision}`) };
+}
+
+function fixtureRepresentativeIdentity(revision) {
+  return { proofId: 'proof-representative', proofDigest: HEX(`REPRESENTATIVE_COMBINATION:${revision}`),
+    semanticAcceptanceDigest: HEX(`REPRESENTATIVE_SEMANTIC_ACCEPTANCE:${revision}`),
+    footageEvidenceId: 'frame-001', components: [{ assetId: 'asset-representative-component',
+      sourceDigest: HEX(`REPRESENTATIVE_COMPONENT:${revision}`), cropReceiptDigest: null }] };
+}
 
 function stamp(value) {
   value.integrity ??= { digest: null, upstream: {} };
@@ -110,7 +126,7 @@ function stateAtReview() {
   });
 }
 
-async function fixture(t) {
+export async function createDirectorLockFixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'hf-director-lock-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const path of ['analysis/evidence/media-video-001/segment-001', 'direction', 'edit', 'renders', 'review/workbench-assets', 'cache', 'media/music']) await mkdir(join(root, path), { recursive: true });
@@ -233,6 +249,8 @@ async function fixture(t) {
   return { root, approval, proposals, candidates, rebuildWorkbench };
 }
 
+const fixture = createDirectorLockFixture;
+
 async function advanceProjectState(root, next, timestamp) {
   const path = join(root, 'PROJECT_STATE.json');
   const state = JSON.parse(await readFile(path, 'utf8'));
@@ -248,10 +266,12 @@ async function advanceProjectState(root, next, timestamp) {
       { role: 'DESIGN_SYSTEM', qualifier: 'frozen', revision: design.revision, digest: design.integrity.digest },
       { role: 'LOOK_PROFILE', qualifier: 'frozen', revision: look.revision, digest: look.integrity.digest },
       { role: 'ASSET_PLAN', qualifier: 'approved', revision, digest: HEX(`ASSET_PLAN:${revision}`) },
+      { role: 'STYLE_ANCHOR', qualifier: 'accepted', revision, digest: HEX(`STYLE_ANCHOR:${revision}`) },
     ];
   } else if (next === 'ASSET_PRODUCTION') {
+    const acceptedManifest = JSON.parse(await readFile(join(root, 'direction/ASSET_MANIFEST.json'), 'utf8'));
     artifacts = [
-      { role: 'STYLE_ANCHOR', qualifier: 'accepted', revision, digest: HEX(`STYLE_ANCHOR:${revision}`) },
+      { role: 'STYLE_ANCHOR', qualifier: 'accepted', revision, digest: acceptedManifest.acceptance.anchorDigest },
       { role: 'REPRESENTATIVE_COMBINATION', qualifier: 'accepted', revision, digest: HEX(`REPRESENTATIVE_COMBINATION:${revision}`) },
     ];
   }
@@ -269,8 +289,58 @@ async function advanceProjectState(root, next, timestamp) {
     evidenceDigests: Object.fromEntries(artifacts.map(({ role, digest }) => [role, digest])),
     evidenceRevisions: Object.fromEntries(artifacts.map(({ role, revision: artifactRevision }) => [role, artifactRevision])),
   });
+  if (next === 'STYLE_ANCHOR' || next === 'ASSET_PRODUCTION') {
+    let manifest;
+    if (next === 'STYLE_ANCHOR') {
+      const [design, look] = await Promise.all([
+        readFile(join(root, 'direction/DESIGN_SYSTEM.json'), 'utf8').then(JSON.parse),
+        readFile(join(root, 'direction/LOOK_PROFILE.json'), 'utf8').then(JSON.parse),
+      ]);
+      manifest = { $schema: 'https://hyperframes.local/schemas/asset-manifest.schema.json', schemaVersion: '1.0.0',
+        revision, assetRevision: `assets-${revision}`, status: 'available', designRevision: design.designRevision,
+        lookRevision: look.lookRevision, designSystemDigest: design.integrity.digest, lookProfileDigest: look.integrity.digest,
+        assetPlanDigest: HEX(`ASSET_PLAN:${revision}`), selectedAssetPlanDigest: HEX(`selected-assets:${revision}`),
+        acceptance: { anchorDigest: HEX(`STYLE_ANCHOR:${revision}`), representativeDigest: null,
+          anchorIdentity: fixtureAnchorIdentity(revision), representativeIdentity: null, batches: [] }, assets: [],
+        integrity: { digest: null, upstream: { assetPlan: HEX(`ASSET_PLAN:${revision}`), designSystem: design.integrity.digest, lookProfile: look.integrity.digest } } };
+    } else {
+      manifest = JSON.parse(await readFile(join(root, 'direction/ASSET_MANIFEST.json'), 'utf8'));
+      manifest.revision = revision; manifest.assetRevision = `assets-${revision}`;
+      manifest.acceptance.representativeDigest = HEX(`REPRESENTATIVE_COMBINATION:${revision}`);
+      manifest.acceptance.representativeIdentity = fixtureRepresentativeIdentity(revision);
+    }
+    await writeJson(join(root, 'direction/ASSET_MANIFEST.json'), manifest);
+    state.assetAcceptance = { stage: next === 'STYLE_ANCHOR' ? 'anchor' : 'representative', manifestRevision: revision,
+      manifestDigest: manifest.integrity.digest, anchorDigest: manifest.acceptance.anchorDigest,
+      representativeDigest: next === 'ASSET_PRODUCTION' ? HEX(`REPRESENTATIVE_COMBINATION:${revision}`) : null,
+      anchorIdentityDigest: computeArtifactDigest(manifest.acceptance.anchorIdentity),
+      representativeIdentityDigest: manifest.acceptance.representativeIdentity
+        ? computeArtifactDigest(manifest.acceptance.representativeIdentity) : null,
+      batchDigest: null, acceptedAt: timestamp };
+  }
   await writeJson(path, state);
   return state;
+}
+
+async function acceptFixtureAssetBatch(root, timestamp) {
+  const statePath = join(root, 'PROJECT_STATE.json');
+  const manifestPath = join(root, 'direction/ASSET_MANIFEST.json');
+  const [state, manifest] = await Promise.all([
+    readFile(statePath, 'utf8').then(JSON.parse), readFile(manifestPath, 'utf8').then(JSON.parse),
+  ]);
+  manifest.revision += 1;
+  manifest.assetRevision = `assets-${manifest.revision}`;
+  manifest.status = 'frozen';
+  const batchDigest = HEX(`ASSET_BATCH:${manifest.revision}`);
+  manifest.acceptance.batches.push({ revision: manifest.revision, digest: batchDigest, acceptedAt: timestamp });
+  await writeJson(manifestPath, manifest);
+  state.revision += 1;
+  state.assetAcceptance = { stage: 'batch', manifestRevision: manifest.revision, manifestDigest: manifest.integrity.digest,
+    anchorDigest: manifest.acceptance.anchorDigest, representativeDigest: manifest.acceptance.representativeDigest,
+    anchorIdentityDigest: computeArtifactDigest(manifest.acceptance.anchorIdentity),
+    representativeIdentityDigest: computeArtifactDigest(manifest.acceptance.representativeIdentity),
+    batchDigest, acceptedAt: timestamp };
+  await writeJson(statePath, state);
 }
 
 test('approval validation selects exactly one complete current proposal and compilation follows the full lifecycle', async (t) => {
@@ -557,6 +627,11 @@ test('immutable lock snapshot has an independent inode and survives in-place cur
   await assert.rejects(() => approvalModule.validatePostLockWorkbench(root), (error) => error.code === 'E_WORKBENCH_CURRENT_STALE');
   await approvalModule.buildPostLockWorkbench(root);
   assert.equal((await validateCommittedDirection(root)).workbenchDigest, snapshotDigest);
+  await writeFile(join(root, 'cache/asset-stage.transaction.json'), '{}\n');
+  await assert.rejects(() => validateCommittedDirection(root), (error) => error.code === 'E_ASSET_TRANSACTION_PENDING');
+  await assert.rejects(() => approvalModule.buildPostLockWorkbench(root), (error) => error.code === 'E_ASSET_TRANSACTION_PENDING');
+  await assert.rejects(() => approvalModule.validatePostLockWorkbench(root), (error) => error.code === 'E_ASSET_TRANSACTION_PENDING');
+  await unlink(join(root, 'cache/asset-stage.transaction.json'));
 });
 
 test('lock publication and committed validation reject dangling or byte-identical symlink evidence', async (t) => {
@@ -687,6 +762,7 @@ test('post-lock workbench rebuild advances current evidence without changing imm
   timeline.items[0].sourceReference = { kind: 'original', path: 'media/originals/media-video-001.mp4', digest: timeline.items[0].sourceReference.digest };
   await writeJson(timelinePath, timeline);
   await advanceProjectState(root, 'ASSET_PRODUCTION', '2026-09-01T12:20:00.000Z');
+  await acceptFixtureAssetBatch(root, '2026-09-01T12:25:00.000Z');
   await advanceProjectState(root, 'MOTION_COMPOSITION', '2026-09-01T12:30:00.000Z');
 
   const rebuilt = await approvalModule.buildPostLockWorkbench(root);
@@ -704,6 +780,38 @@ test('post-lock workbench rebuild advances current evidence without changing imm
   assert.deepEqual((await readdir(join(root, 'review'))).filter((name) => name.startsWith('director-lock.')), ['director-lock.snapshot.html']);
   assert.equal((await approvalModule.validatePostLockWorkbench(root)).digest, rebuilt.digest);
   assert.equal((await validateCommittedDirection(root)).state.state, 'MOTION_COMPOSITION');
+  await assert.rejects(approvalModule.buildPostLockWorkbench(root, { mutationGuard: {} }),
+    (error) => error.code === 'E_REPAIR_BUSY', 'standalone workbench cannot trust caller-supplied guard ownership');
+
+  let releaseWorkbench;
+  let workbenchRead;
+  const workbenchReadPromise = new Promise((resolveRead) => { workbenchRead = resolveRead; });
+  const releaseWorkbenchPromise = new Promise((resolveRelease) => { releaseWorkbench = resolveRelease; });
+  const serializedBuild = approvalModule.buildPostLockWorkbench(root, { afterDirectionRead: async () => {
+    workbenchRead(); await releaseWorkbenchPromise;
+  } });
+  await workbenchReadPromise;
+  await assert.rejects(persistApprovedRepair(root, { repairClass: 'position', role: 'MOTION_MAP' }, {
+    gate: 'FINAL_QA', reason: 'workbench publication race probe', timestamp: '2026-09-01T12:35:00.000Z',
+    beforeDigests: {}, afterDigests: {},
+  }), (error) => error.code === 'E_REPAIR_BUSY',
+  'workbench holds the shared project mutation epoch through render and durable publication');
+  releaseWorkbench(); await serializedBuild;
+
+  const currentState = JSON.parse(await readFile(join(root, 'PROJECT_STATE.json'), 'utf8'));
+  const assetRollback = rollbackStateForInvalidation(currentState, ['ASSET_MANIFEST'], {
+    timestamp: '2026-09-01T12:40:00.000Z', producerCommand: 'invalidate --changed ASSET_MANIFEST',
+  });
+  await assert.rejects(approvalModule.buildPostLockWorkbench(root, { afterDirectionRead: async () => {
+    await writeJson(join(root, 'PROJECT_STATE.json'), assetRollback);
+  } }), (error) => error.code === 'E_DIRECTION_PAIR_INVALID',
+  'workbench refuses a manifest validated against a different PROJECT_STATE snapshot');
+  await approvalModule.buildPostLockWorkbench(root);
+  const rolledBackView = await readFile(join(root, 'review/director-workbench.html'), 'utf8');
+  assert.match(rolledBackView, /Current acceptance · anchor/);
+  assert.match(rolledBackView, /Historical manifest history · 1 batch/);
+  assert.doesNotMatch(rolledBackView, /Current acceptance · (?:representative|batch)/,
+    'workbench renders acceptance from PROJECT_STATE, not the frozen historical manifest');
 });
 
 test('immutable lock snapshot authorizes direction while mutable current-view binding detects stale bytes', async (t) => {

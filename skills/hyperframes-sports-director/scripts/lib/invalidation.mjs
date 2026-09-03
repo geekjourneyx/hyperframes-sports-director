@@ -162,7 +162,7 @@ async function writeJsonAtomic(path, value, token = randomBytes(16).toString('he
   }
 }
 
-async function processStartIdentity(pid) {
+export async function processStartIdentity(pid) {
   try {
     const fields = (await readFile(`/proc/${pid}/stat`, 'utf8')).trim().split(' ');
     return fields[21] ?? null;
@@ -239,7 +239,7 @@ async function releaseRepairTakeoverMutex(path, owner) {
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
 }
 
-async function acquireRepairGuard(projectRoot, hooks = {}) {
+export async function acquireRepairGuard(projectRoot, hooks = {}) {
   const path = projectPath(projectRoot, REPAIR_GUARD);
   const owner = { token: randomBytes(32).toString('hex'), pid: process.pid, processStartId: await processStartIdentity(process.pid), active: true };
   if (owner.processStartId === null) { const error = new Error('process identity unavailable'); error.code = 'E_REPAIR_OWNER'; throw error; }
@@ -285,13 +285,36 @@ async function acquireRepairGuard(projectRoot, hooks = {}) {
   const busy = new Error('repair guard takeover lost a race'); busy.code = 'E_REPAIR_BUSY'; throw busy;
 }
 
-async function releaseRepairGuard(projectRoot, owner) {
+export async function releaseRepairGuard(projectRoot, owner) {
   const path = projectPath(projectRoot, REPAIR_GUARD);
   try {
     const current = validateRepairGuard(JSON.parse(await readFile(path, 'utf8')));
     if (current.owner.token === owner.token) { await unlink(path); await syncDirectory(path); }
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
+  }
+}
+
+export async function assertRepairGuardOwnership(projectRoot, owner) {
+  let current;
+  try { current = validateRepairGuard(JSON.parse(await readFile(projectPath(projectRoot, REPAIR_GUARD), 'utf8'))); }
+  catch {
+    const error = new Error('project mutation guard ownership is not current'); error.code = 'E_REPAIR_BUSY'; throw error;
+  }
+  if (!owner || current.owner.token !== owner.token || current.owner.pid !== owner.pid
+    || current.owner.processStartId !== owner.processStartId || owner.active !== true) {
+    const error = new Error('project mutation guard ownership is not current'); error.code = 'E_REPAIR_BUSY'; throw error;
+  }
+  return true;
+}
+
+export async function assertNoPendingAssetTransaction(projectRoot) {
+  try {
+    await readFile(projectPath(projectRoot, 'cache/asset-stage.transaction.json'), 'utf8');
+    const error = new Error('an asset-stage transaction is pending recovery'); error.code = 'E_ASSET_TRANSACTION_PENDING'; throw error;
+  } catch (error) {
+    if (error.code === 'ENOENT') return true;
+    throw error;
   }
 }
 
@@ -407,6 +430,8 @@ async function readRepairHistory(projectRoot) {
 }
 
 async function persistApprovedRepairUnderGuard(projectRoot, change, context, guard) {
+  await assertRepairGuardOwnership(projectRoot, guard);
+  await assertNoPendingAssetTransaction(projectRoot);
   const recovery = await recoverRepairTransaction(projectRoot);
   if (recovery?.state === 'BLOCKED') return recovery;
   const transactionId = randomBytes(16).toString('hex');
@@ -506,10 +531,17 @@ export function rollbackStateForInvalidation(projectState, invalidatedRoles, con
   const rollbackTransitionIndex = result.transitions.findLastIndex((transition) => transition.to === rollbackTarget);
   const supersededTransitions = result.transitions.slice(rollbackTransitionIndex + 1);
   result.gateEvidence = result.gateEvidence.map((evidence) => {
-    const superseded = supersededTransitions.some((transition) => transition.evidenceDigests[evidence.role] === evidence.digest);
+    const superseded = supersededTransitions.some((transition) => evidence.gate === transition.to
+      && transition.evidenceDigests[evidence.role] === evidence.digest);
     return superseded ? { ...evidence, validity: 'invalidated', invalidatedAt: context.timestamp } : evidence;
   });
   result.previousState = projectState.state;
+  if (nextState === 'ASSET_PRODUCTION' && !invalidatedRoles.includes('ASSET_MANIFEST')) {
+    result.assetAcceptance = structuredClone(projectState.assetAcceptance ?? null);
+  } else if (nextState === 'STYLE_ANCHOR' && projectState.assetAcceptance?.anchorDigest) {
+    result.assetAcceptance = { ...structuredClone(projectState.assetAcceptance), stage: 'anchor',
+      representativeDigest: null, batchDigest: null, acceptedAt: context.timestamp };
+  } else result.assetAcceptance = null;
   result.state = nextState;
   result.stateEnteredAt = context.timestamp;
   result.revision = revision;

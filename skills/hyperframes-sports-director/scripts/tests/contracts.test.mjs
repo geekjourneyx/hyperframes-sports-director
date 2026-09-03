@@ -14,6 +14,7 @@ import {
   validateDocument,
   verifyArtifactIntegrity,
 } from '../lib/contracts.mjs';
+import { rollbackStateForInvalidation } from '../lib/invalidation.mjs';
 import { framesToSeconds, secondsToFrames } from '../lib/time.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -43,7 +44,7 @@ function assertInvalid(schema, value, message) {
 
 function directionCandidate(candidateId) {
   const suffix = candidateId.replace('candidate-', '');
-  return {
+  const result = {
     candidateId,
     title: `Direction ${suffix.toUpperCase()}`,
     thesis: 'One complete, restrained editorial direction.',
@@ -72,6 +73,7 @@ function directionCandidate(candidateId) {
     risks: [],
     previewArtifactDigests: { layout: 'a'.repeat(64), motion: 'b'.repeat(64) },
   };
+  return result;
 }
 
 function stampIntegrity(value) {
@@ -79,9 +81,27 @@ function stampIntegrity(value) {
   return value;
 }
 
+function richAsset() {
+  const result = {
+    id: 'asset-001', assetId: 'asset-001', planItem: 'chapter-index', planType: 'component', selectedRole: 'chapter_slate', source: 'assets/images/components/anchor.webp', sourceKind: 'component-crop',
+    provenance: { kind: 'generated-interpretive', sourceDigest: '9'.repeat(64), producer: 'image-gen', generatedAt: '2026-09-01T00:00:00.000Z' },
+    documentaryStatus: 'interpretive', narrativeRole: 'journey_anchor', semanticColorTokens: ['color.accent'],
+    crop: { sourceSheet: 'assets/images/source/anchor-sheet.webp', sourceSheetDigest: '8'.repeat(64), receiptDigest: '7'.repeat(64), left: 0, top: 0, width: 200, height: 120, padding: 10 },
+    alphaBounds: { left: 10, top: 10, width: 180, height: 100 },
+    expectedDisplayRect: { x: 100, y: 100, width: 180, height: 100, canvasWidth: 1920, canvasHeight: 1080 },
+    nativeEffectivePixels: { width: 180, height: 100 }, styleAnchorId: 'asset-anchor',
+    proofs: {
+      dark: { path: 'assets/images/proofs/anchor-dark.png', digest: 'a'.repeat(64), background: '#050505', componentDigest: '9'.repeat(64), canvas: { width: 1920, height: 1080 }, displayRect: { x: 100, y: 100, width: 180, height: 100 }, receiptDigest: '5'.repeat(64) },
+      light: { path: 'assets/images/proofs/anchor-light.png', digest: 'b'.repeat(64), background: '#F5F2EA', componentDigest: '9'.repeat(64), canvas: { width: 1920, height: 1080 }, displayRect: { x: 100, y: 100, width: 180, height: 100 }, receiptDigest: '6'.repeat(64) },
+    },
+    allowedUses: ['overlay'], combinationTests: [], visualAcceptance: null, optional: false,
+  };
+  return result;
+}
+
 function gateSpecifications(state) {
   if (state === 'DIRECTOR_LOCK') return [['DESIGN_SYSTEM', 'frozen'], ['LOOK_PROFILE', 'frozen'], ['DIRECTOR_APPROVAL', 'consumed'], ['WORKBENCH', 'state-bound']];
-  if (state === 'STYLE_ANCHOR') return [['DESIGN_SYSTEM', 'frozen'], ['LOOK_PROFILE', 'frozen'], ['ASSET_PLAN', 'approved']];
+  if (state === 'STYLE_ANCHOR') return [['DESIGN_SYSTEM', 'frozen'], ['LOOK_PROFILE', 'frozen'], ['ASSET_PLAN', 'approved'], ['STYLE_ANCHOR', 'accepted']];
   if (state === 'ASSET_PRODUCTION') return [['STYLE_ANCHOR', 'accepted'], ['REPRESENTATIVE_COMBINATION', 'accepted']];
   if (state === 'DELIVERED') {
     return [
@@ -126,7 +146,7 @@ function projectStateAt(base, state) {
     };
   });
   const last = transitions.at(-1);
-  return {
+  const result = {
     ...clone(base),
     state,
     previousState: last.from,
@@ -135,6 +155,18 @@ function projectStateAt(base, state) {
     invalidations: [],
     gateEvidence,
   };
+  if (['STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED'].includes(state)) {
+    const anchorRecord = state === 'STYLE_ANCHOR'
+      ? gateEvidence.findLast(({ gate, role }) => gate === 'STYLE_ANCHOR' && role === 'STYLE_ANCHOR')
+      : gateEvidence.findLast(({ gate, role }) => gate === 'ASSET_PRODUCTION' && role === 'STYLE_ANCHOR');
+    const representativeRecord = gateEvidence.findLast(({ gate, role }) => gate === 'ASSET_PRODUCTION' && role === 'REPRESENTATIVE_COMBINATION');
+    result.assetAcceptance = { stage: state === 'STYLE_ANCHOR' ? 'anchor' : 'batch', manifestRevision: 2,
+      manifestDigest: 'e'.repeat(64), anchorDigest: anchorRecord.digest, representativeDigest: state === 'STYLE_ANCHOR' ? null : representativeRecord.digest,
+      anchorIdentityDigest: 'a'.repeat(64), representativeIdentityDigest: state === 'STYLE_ANCHOR' ? null : 'b'.repeat(64),
+      batchDigest: state === 'STYLE_ANCHOR' ? null : 'c'.repeat(64), acceptedAt: last.at };
+    if (state === 'STYLE_ANCHOR') result.assetAcceptance.manifestRevision = anchorRecord.revision;
+  }
+  return result;
 }
 
 test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, and time', async () => {
@@ -272,17 +304,19 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
   assetManifest.lookRevision = 'look-11';
   assetManifest.designSystemDigest = '7'.repeat(64);
   assetManifest.lookProfileDigest = 'b'.repeat(64);
-  assetManifest.integrity.upstream = { designSystem: assetManifest.designSystemDigest, lookProfile: assetManifest.lookProfileDigest };
-  assetManifest.assets = [{
-    assetId: 'asset-001', role: 'journey-anchor', provenance: 'generated-interpretive',
-    portablePath: 'assets/images/components/anchor.webp', colorToken: 'color.accent',
-    optional: false,
-  }];
+  assetManifest.assetPlanDigest = 'c'.repeat(64);
+  assetManifest.selectedAssetPlanDigest = 'd'.repeat(64);
+  assetManifest.integrity.upstream = { assetPlan: assetManifest.assetPlanDigest, designSystem: assetManifest.designSystemDigest, lookProfile: assetManifest.lookProfileDigest };
+  assetManifest.assets = [richAsset()];
   stampIntegrity(assetManifest);
   assertValid(schemas['asset-manifest'], assetManifest, 'independent design and Look revisions');
   const arbitraryColor = clone(assetManifest);
-  arbitraryColor.assets[0].colorToken = '#ff0000';
+  arbitraryColor.assets[0].semanticColorTokens[0] = '#ff0000';
   assertInvalid(schemas['asset-manifest'], arbitraryColor, 'assets reference semantic tokens, not arbitrary colors');
+  const generatedDocumentary = clone(assetManifest);
+  generatedDocumentary.assets[0].documentaryStatus = 'documentary';
+  stampIntegrity(generatedDocumentary);
+  assertInvalid(schemas['asset-manifest'], generatedDocumentary, 'generated media cannot claim documentary status');
 
   const probe = await template('PROBE');
   probe.media = [{
@@ -544,6 +578,7 @@ test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, 
     ['STYLE_ANCHOR', 'DESIGN_SYSTEM', 'frozen'],
     ['STYLE_ANCHOR', 'LOOK_PROFILE', 'frozen'],
     ['STYLE_ANCHOR', 'ASSET_PLAN', 'approved'],
+    ['STYLE_ANCHOR', 'STYLE_ANCHOR', 'accepted'],
     ['ASSET_PRODUCTION', 'STYLE_ANCHOR', 'accepted'],
     ['ASSET_PRODUCTION', 'REPRESENTATIVE_COMBINATION', 'accepted'],
   ]) {
@@ -605,6 +640,16 @@ test('project lifecycle requires auditable gate history before non-intake states
 
   const delivered = projectStateAt(initial, 'DELIVERED');
   assertValid(schema, delivered, 'DELIVERED accepts a contiguous INTAKE-rooted history');
+  const invalidatedAssets = rollbackStateForInvalidation(delivered, ['ASSET_MANIFEST'], {
+    timestamp: '2026-09-01T13:00:00.000Z', producerCommand: 'invalidate --changed ASSET_MANIFEST',
+  });
+  invalidatedAssets.assetAcceptance.anchorDigest = invalidatedAssets.gateEvidence
+    .findLast(({ gate, role, validity }) => gate === 'STYLE_ANCHOR' && role === 'STYLE_ANCHOR' && validity === 'valid').digest;
+  stampIntegrity(invalidatedAssets);
+  assertValid(schema, invalidatedAssets, 'asset invalidation retains exact anchor-level acceptance authority');
+  invalidatedAssets.assetAcceptance = null;
+  stampIntegrity(invalidatedAssets);
+  assertInvalid(schema, invalidatedAssets, 'an invalidation destination cannot forge null asset acceptance authority');
   const wrongPrevious = clone(delivered);
   wrongPrevious.previousState = 'INTAKE';
   assertInvalid(schema, wrongPrevious, 'previousState binds to the final transition');
@@ -682,16 +727,18 @@ test('artifact validation rejects digest mismatch and enforces explicit upstream
   const assets = await template('ASSET_MANIFEST');
   assets.designSystemDigest = 'e'.repeat(64);
   assets.lookProfileDigest = 'f'.repeat(64);
-  assets.integrity.upstream = { designSystem: assets.designSystemDigest, lookProfile: assets.lookProfileDigest };
-  assets.assets = [{
-    assetId: 'asset-001', role: 'journey-anchor', provenance: 'generated-interpretive',
-    portablePath: 'assets/images/components/anchor.webp', colorToken: 'color.accent', optional: false,
-  }];
+  assets.assetPlanDigest = 'd'.repeat(64);
+  assets.integrity.upstream = { assetPlan: assets.assetPlanDigest, designSystem: assets.designSystemDigest, lookProfile: assets.lookProfileDigest };
+  assets.assets = [richAsset()];
   stampIntegrity(assets);
   assertValid(assetsSchema, assets, 'ASSET_MANIFEST binds design-system and Look digests');
   const staleLook = clone(assets);
   staleLook.lookProfileDigest = '0'.repeat(64);
   assertInvalid(assetsSchema, staleLook, 'ASSET_MANIFEST rejects stale Look lineage');
+  const disguisedActivity = clone(assets);
+  disguisedActivity.assets[0].provenance.kind = 'code-rendered-activity';
+  disguisedActivity.assets[0].narrativeRole = 'journey_anchor';
+  assertInvalid(assetsSchema, disguisedActivity, 'code-rendered activity cannot bypass documentary evidence binding through another narrative role');
 });
 
 test('activity validation enforces every metric authority tuple', async () => {

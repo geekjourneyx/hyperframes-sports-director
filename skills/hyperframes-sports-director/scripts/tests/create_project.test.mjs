@@ -122,6 +122,7 @@ function evidenceFor(next) {
       evidenceRecord(next, 'DESIGN_SYSTEM', ['frozen']),
       evidenceRecord(next, 'LOOK_PROFILE', ['frozen']),
       evidenceRecord(next, 'ASSET_PLAN', ['approved']),
+      evidenceRecord(next, 'STYLE_ANCHOR', ['accepted']),
     ];
   } else if (next === 'ASSET_PRODUCTION') {
     records = [
@@ -153,7 +154,9 @@ function persistedStateAt(base, state) {
     const records = evidenceFor(to).records.map((record, roleIndex) => ({
       ...record,
       revision: index + 1,
-      digest: `${index + 1}${roleIndex + 1}`.padStart(64, '0'),
+      digest: to === 'ASSET_PRODUCTION' && record.role === 'STYLE_ANCHOR'
+        ? gateEvidence.findLast(({ gate, role }) => gate === 'STYLE_ANCHOR' && role === 'STYLE_ANCHOR').digest
+        : `${index + 1}${roleIndex + 1}`.padStart(64, '0'),
       timestamp: at,
     }));
     gateEvidence.push(...records);
@@ -521,6 +524,12 @@ test('invalidation closure produces contract-valid auditable rollback and frozen
   const base = JSON.parse(await readFile(`${ROOT}/templates/PROJECT_STATE.template.json`, 'utf8'));
   const projectState = persistedStateAt(base, 'FINAL_QA');
   projectState.revision = 12;
+  const acceptedAnchor = projectState.gateEvidence.find(({ gate, role }) => gate === 'ASSET_PRODUCTION' && role === 'STYLE_ANCHOR');
+  const acceptedRepresentative = projectState.gateEvidence.find(({ gate, role }) => gate === 'ASSET_PRODUCTION' && role === 'REPRESENTATIVE_COMBINATION');
+  projectState.assetAcceptance = { stage: 'batch', manifestRevision: 9, manifestDigest: 'd'.repeat(64),
+    anchorDigest: acceptedAnchor.digest, representativeDigest: acceptedRepresentative.digest,
+    anchorIdentityDigest: 'a'.repeat(64), representativeIdentityDigest: 'c'.repeat(64), batchDigest: 'b'.repeat(64),
+    acceptedAt: '2026-09-01T00:08:30.000Z' };
   projectState.integrity.digest = computeArtifactDigest(projectState);
   const snapshot = structuredClone(projectState);
   const timelineRollback = rollbackStateForInvalidation(
@@ -538,6 +547,7 @@ test('invalidation closure produces contract-valid auditable rollback and frozen
   assert.ok(timelineRollback.gateEvidence.filter((record) => record.gate === 'ASSET_PRODUCTION').every((record) => record.validity === 'valid'));
   assert.equal(timelineRollback.gateEvidence.at(-1).validity, 'valid');
   assert.equal(timelineRollback.revision, 13);
+  assert.deepEqual(timelineRollback.assetAcceptance, projectState.assetAcceptance, 'downstream rollback preserves accepted batch authority');
   const timelineValidation = validateDocument(await loadSchema('project-state'), timelineRollback);
   assert.equal(timelineValidation.valid, true, JSON.stringify(timelineValidation.errors));
   assert.equal(timelineRollback.integrity.digest, computeArtifactDigest(timelineRollback));
@@ -570,6 +580,14 @@ test('invalidation closure produces contract-valid auditable rollback and frozen
   }
   const unknownRoleTarget = forgeRollback(timelineRollback, { invalidatedRoles: ['UNKNOWN_ROLE'] });
   assert.equal(validateDocument(await loadSchema('project-state'), unknownRoleTarget).valid, false, 'unknown invalidation roles cannot justify a rollback target');
+
+  const assetRollback = rollbackStateForInvalidation(projectState, ['ASSET_MANIFEST', 'MOTION_MAP', 'FINAL_RENDER', 'REVIEW'],
+    { timestamp: '2026-09-01T12:30:30.000Z', producerCommand: 'invalidate --changed ASSET_MANIFEST' });
+  assert.equal(assetRollback.state, 'STYLE_ANCHOR');
+  assert.deepEqual(assetRollback.assetAcceptance, { ...projectState.assetAcceptance, stage: 'anchor', representativeDigest: null,
+    batchDigest: null, acceptedAt: '2026-09-01T12:30:30.000Z' });
+  const assetRollbackValidation = validateDocument(await loadSchema('project-state'), assetRollback);
+  assert.equal(assetRollbackValidation.valid, true, JSON.stringify(assetRollbackValidation.errors));
 
   const frozenBoundary = rollbackStateForInvalidation(
     projectState,

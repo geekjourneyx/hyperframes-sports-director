@@ -9,9 +9,9 @@ import { validateTimeline } from './lib/timeline.mjs';
 export async function validateTimelineFile({ project, phase, input, timeline: requestedTimeline = 'edit/TIMELINE.json' }) {
   const timelinePath = projectPath(project, requestedTimeline);
   const evidence = await loadEditorialEvidence({ project, phase, input, timeline: requestedTimeline });
-  const { probe, shots, transcript, timeline, assetManifest, motionMap, profiles } = evidence;
+  const { probe, shots, transcript, timeline, assetManifest, motionMap, dataOverlays, profiles } = evidence;
   const result = validateTimeline({
-    phase: phase ?? timeline.phase, project, probe, shots, transcript, assetManifest, motionMap,
+    phase: phase ?? timeline.phase, project, probe, shots, transcript, assetManifest, motionMap, dataOverlays,
     timeline, profiles,
   });
   if (!result.renderable) return { ok: false, ...result, artifact: requestedTimeline };

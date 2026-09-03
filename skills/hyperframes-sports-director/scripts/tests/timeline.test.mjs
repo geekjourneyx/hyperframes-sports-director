@@ -114,6 +114,49 @@ test('rough uses current proxies while final uses originals and resolved product
   });
   assert.ok(unresolved.errors.some(({ code }) => code === 'E_ASSET_REFERENCE'));
   assert.ok(unresolved.errors.some(({ code }) => code === 'E_MOTION_REFERENCE'));
+
+  const generatedDocumentary = validateTimeline({
+    phase: 'final', probe, shots,
+    timeline: timelineFixture([itemFixture({
+      sourceReference: { kind: 'original', path: 'media/originals/media-video-001.mp4', digest: digest('1') },
+      assetReferences: ['asset-generated'],
+    })], { phase: 'final' }), profiles,
+    assetManifest: { status: 'frozen', assets: [{ assetId: 'asset-generated', documentaryStatus: 'documentary', provenance: { kind: 'generated-interpretive' } }] },
+    motionMap: { status: 'frozen', owners: [] },
+  });
+  assert.ok(generatedDocumentary.errors.some(({ code }) => code === 'E_GENERATED_DOCUMENTARY'));
+
+  const staleActivity = validateTimeline({
+    phase: 'final', probe, shots,
+    timeline: timelineFixture([itemFixture({
+      sourceReference: { kind: 'original', path: 'media/originals/media-video-001.mp4', digest: digest('1') },
+      assetReferences: ['asset-activity'],
+    })], { phase: 'final' }), profiles,
+    dataOverlays: { integrity: { digest: digest('c') }, publicRoute: { status: 'unavailable', trimmedRouteId: null }, overlays: [{ overlayId: 'overlay-effort' }] },
+    assetManifest: { status: 'frozen', assets: [{ assetId: 'asset-activity', documentaryStatus: 'documentary', narrativeRole: 'journey_anchor',
+      provenance: { kind: 'code-rendered-activity', evidenceBinding: { kind: 'data-overlay', id: 'overlay-effort', digest: digest('d'), privacyStatus: 'not-applicable' } } }] },
+    motionMap: { status: 'frozen', owners: [] },
+  });
+  assert.ok(staleActivity.errors.some(({ code }) => code === 'E_DOCUMENTARY_ACTIVITY_BINDING'));
+});
+
+test('final timeline binds current design, Look, asset, motion, and overlay revisions and digests', () => {
+  const probe = probeFixture();
+  const shots = { shots: [shotFixture()] };
+  const assetManifest = { status: 'frozen', designRevision: 'design-4', lookRevision: 'look-3', assetRevision: 'assets-9',
+    integrity: { digest: digest('b') }, assets: [] };
+  const motionMap = { status: 'frozen', designRevision: 'design-4', assetRevision: 'assets-9', motionRevision: 'motion-8',
+    integrity: { digest: digest('c') }, owners: [] };
+  const dataOverlays = { status: 'unavailable', integrity: { digest: digest('d') }, publicRoute: { status: 'unavailable', trimmedRouteId: null }, overlays: [] };
+  const timeline = timelineFixture([itemFixture({ sourceReference: { kind: 'original', path: 'media/originals/media-video-001.mp4', digest: digest('1') } })], {
+    phase: 'final', designRevision: 'design-4', lookRevision: 'look-3', assetRevision: 'assets-9', motionRevision: 'motion-8',
+    assetManifestDigest: digest('b'), motionMapDigest: digest('c'), dataOverlaysDigest: digest('d'),
+  });
+  assert.ok(!validateTimeline({ phase: 'final', probe, shots, timeline, profiles, assetManifest, motionMap, dataOverlays }).errors
+    .some(({ code }) => code === 'E_TIMELINE_PRODUCTION_AUTHORITY'));
+  const stale = { ...timeline, assetManifestDigest: digest('e'), motionRevision: 'motion-7' };
+  assert.ok(validateTimeline({ phase: 'final', probe, shots, timeline: stale, profiles, assetManifest, motionMap, dataOverlays }).errors
+    .some(({ code }) => code === 'E_TIMELINE_PRODUCTION_AUTHORITY'));
 });
 
 test('timeline validates still hold/panzoom, speed curves, setup-tail, shake, and transition ownership', () => {
