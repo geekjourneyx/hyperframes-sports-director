@@ -36,7 +36,7 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 16 — lean discoverable Skill and UI metadata | Complete | `e5bb5ccc3845552fc71f41602ebe968ebdfcdf4a` | The concise Skill router, one-hop references, executable commands, and implicit-invocation UI metadata are accepted; do not recreate. |
 | 17 — Skill GREEN/REFACTOR evals and triggering | Complete | `87bb4f3c23634b9137d79c09709373a63797d1f4` | Paired behavior, three-run trigger evidence, one observed-failure refactor, and the evaluation report are accepted; do not repeat. |
 | 18 — golden end-to-end evals and scorer | Complete | `ad3067f64d41a37e120eb0f113ff8d201cd65454` | Deterministic evidence-derived scoring, three release-grade golden pipelines, 1080p/4K coverage, and release thresholds are accepted; do not repeat. |
-| 19 — documentation, CI, packaging, and release dry run | Next | — | Add release documentation, CI/package gates, icons, and the dry-run archive; do not tag or publish without explicit approval. |
+| 19 — documentation, CI, packaging, and release dry run | Complete | `5612242b004940bf883b7a7b3d08d62ef1cfdf9a` | Release docs, CI/package gates, original icons, and the deterministic dry-run archive are accepted. No tag or publication has occurred. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
