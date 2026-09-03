@@ -479,6 +479,10 @@ export async function persistApprovedRepair(projectRoot, change, context) {
   finally { await releaseRepairGuard(projectRoot, guard); }
 }
 
+export async function persistApprovedRepairWithGuard(projectRoot, change, context, guard) {
+  return persistApprovedRepairUnderGuard(projectRoot, change, context, guard);
+}
+
 export function computeInvalidationClosure(changedRoles, dependencyGraph) {
   if (!Array.isArray(changedRoles) || changedRoles.some((role) => typeof role !== 'string')) {
     throw new TypeError('changedRoles must be an array of artifact roles');

@@ -522,7 +522,7 @@ export async function compileFinalRenderPlan(input) {
   finalArgs.push('-filter_complex', filters.join(';'), '-map', '[vbase]', '-map', `[${audioLabel}]`, '-c:v', VIDEO_CODEC[delivery.videoCodec]);
   if (sizeBudget) finalArgs.push('-b:v', String(sizeBudget.videoBitrate), '-maxrate', String(sizeBudget.videoBitrate), '-bufsize', String(sizeBudget.videoBitrate * 2));
   else finalArgs.push('-crf', delivery.videoCodec === 'h264' ? '18' : '20');
-  finalArgs.push('-pix_fmt', 'yuv420p', '-r', fps, '-c:a', AUDIO_CODEC[delivery.audioCodec], ...(sizeBudget && delivery.audioCodec !== 'pcm_s24le' ? ['-b:a', String(sizeBudget.audioBitrate)] : []), '-movflags', '+faststart', candidatePath);
+  finalArgs.push('-pix_fmt', 'yuv420p', '-r', fps, '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv', '-c:a', AUDIO_CODEC[delivery.audioCodec], ...(sizeBudget && delivery.audioCodec !== 'pcm_s24le' ? ['-b:a', String(sizeBudget.audioBitrate)] : []), '-movflags', '+faststart', candidatePath);
   const pass1Args = sizeBudget ? [...finalArgs.slice(0, -1), '-pass', '1', '-passlogfile', projectPath(project, 'cache/render/final-pass'), '-an', '-f', 'null', '/dev/null'] : null;
   const pass2Args = sizeBudget ? [...finalArgs.slice(0, -1), '-pass', '2', '-passlogfile', projectPath(project, 'cache/render/final-pass'), candidatePath] : finalArgs;
   return {
@@ -707,7 +707,7 @@ export async function executeFinalRenderPlan(plan, options = {}) {
     const provenance = {
       schemaVersion: '1.0.0', revision: 1, producerCommand: 'render_final.mjs', artifact: 'renders/final.mp4', outputDigest,
       closedFileProbe, raster: plan.raster, fps: plan.fps, lossyDeliveryEncodeCount: 1,
-      chapterCache: plan.chapters.map(({ chapterId, cacheKey, portablePath }) => ({ chapterId, cacheKey, path: portablePath })),
+      chapterCache: await Promise.all(plan.chapters.map(async ({ chapterId, cacheKey, portablePath, outputPath }) => ({ chapterId, cacheKey, path: portablePath, outputDigest: await sha256File(outputPath) }))),
       originalSources: plan.originalSources, hyperFramesComposition: plan.hyperFramesComposition,
       integrity: { digest: null, upstream: plan.authority },
     };

@@ -154,7 +154,10 @@ function renderCurrentGateEvidence(model) {
   const motion = model.motionProgress;
   const motionSummary = motion
     ? `<p class="rail-copy">Composition · ${motion.sceneCount} scenes · ${motion.motionOwnerCount} motion owners · ${motion.timelineItemCount} timeline items</p><p class="rail-copy">Hard findings · ${motion.hardErrorCodes.length}; Agent review pending · ${escapeHtml(motion.agentReviewCategories.join(' · '))}</p>` : '';
-  return `<section class="rail-section"><h3>CURRENT GATE EVIDENCE</h3><p class="rail-copy">${escapeHtml(model.state.state.replaceAll('_', ' '))} · revision ${model.state.revision}${escapeHtml(assets)}</p>${currentAcceptance}${historicalAcceptance}${motionSummary}<ul class="rail-list">${records.map(({ role, digest }) => `<li>${escapeHtml(role.replaceAll('_', ' '))} · ${escapeHtml(digest.slice(0, 12))}</li>`).join('')}</ul></section>`;
+  const final = model.finalProgress;
+  const finalSummary = final
+    ? `<p class="rail-copy">Final QC · ${escapeHtml(final.status)} · hard failures ${final.hardFailures.length} · Agent ${escapeHtml(final.agentStatus)}</p><ul class="rail-list"><li>${escapeHtml(final.outputPath)}</li><li>${escapeHtml(final.reportPath)}</li><li>${escapeHtml(final.evidencePackPath)}</li><li>${escapeHtml(final.contactSheetPath)}</li></ul>` : '';
+  return `<section class="rail-section"><h3>CURRENT GATE EVIDENCE</h3><p class="rail-copy">${escapeHtml(model.state.state.replaceAll('_', ' '))} · revision ${model.state.revision}${escapeHtml(assets)}</p>${currentAcceptance}${historicalAcceptance}${motionSummary}${finalSummary}<ul class="rail-list">${records.map(({ role, digest }) => `<li>${escapeHtml(role.replaceAll('_', ' '))} · ${escapeHtml(digest.slice(0, 12))}</li>`).join('')}</ul></section>`;
 }
 
 function tokenStyle() {

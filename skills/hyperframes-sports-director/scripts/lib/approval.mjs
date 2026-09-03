@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 
-import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
+import { computeArtifactDigest, loadSchema, validateArtifact, validateDocument, verifyArtifactIntegrity } from './contracts.mjs';
 import { loadDirectionSources, validateDirectionProposals, validateProposalPreviewArtifacts } from './direction-proposals.mjs';
 import { renderWorkbenchHtml } from './director-workbench.mjs';
 import { acquireRepairGuard, assertNoPendingAssetTransaction, assertNoPendingRepairTransaction, assertRepairGuardOwnership, releaseRepairGuard } from './invalidation.mjs';
@@ -241,16 +241,17 @@ function parseLockSnapshot(html) {
 export function renderLockedWorkbench(state, selectedCandidate, workbenchModel) {
   return renderLockSnapshotModel(buildLockedWorkbenchModel(state, selectedCandidate, workbenchModel));
 }
-function currentWorkbenchBinding(state, snapshotDigest, selectedCandidate, assetManifest = null, motionProgress = null) {
+function currentWorkbenchBinding(state, snapshotDigest, selectedCandidate, assetManifest = null, motionProgress = null, finalProgress = null) {
   return computeArtifactDigest({
     stateRevision: state.revision, stateDigest: state.integrity.digest,
     lockSnapshotPath: LOCK_WORKBENCH_SNAPSHOT_PATH, lockSnapshotDigest: snapshotDigest,
     selectedCandidateId: selectedCandidate.candidateId, selectedCandidateDigest: computeArtifactDigest(selectedCandidate),
     assetManifestRevision: assetManifest?.revision ?? null, assetManifestDigest: assetManifest?.integrity?.digest ?? null,
     motionDiagnosticsRevision: motionProgress?.revision ?? null, motionDiagnosticsDigest: motionProgress?.digest ?? null,
+    reviewMetricsRevision: finalProgress?.revision ?? null, reviewMetricsDigest: finalProgress?.digest ?? null,
   });
 }
-function buildCurrentWorkbenchModel(state, snapshotDigest, selectedCandidate, snapshotModel, assetManifest = null, motionProgress = null) {
+function buildCurrentWorkbenchModel(state, snapshotDigest, selectedCandidate, snapshotModel, assetManifest = null, motionProgress = null, finalProgress = null) {
   const model = structuredClone(snapshotModel);
   model.state = workbenchStateView(state, true);
   model.proposals.candidates = [structuredClone(selectedCandidate)];
@@ -259,7 +260,8 @@ function buildCurrentWorkbenchModel(state, snapshotDigest, selectedCandidate, sn
   model.assetProgress = assetManifest ? { revision: assetManifest.revision, digest: assetManifest.integrity.digest,
     acceptance: structuredClone(state.assetAcceptance), historicalManifestAcceptance: structuredClone(assetManifest.acceptance) } : null;
   model.motionProgress = motionProgress;
-  model.currentViewBinding = currentWorkbenchBinding(state, snapshotDigest, selectedCandidate, assetManifest, motionProgress);
+  model.finalProgress = finalProgress;
+  model.currentViewBinding = currentWorkbenchBinding(state, snapshotDigest, selectedCandidate, assetManifest, motionProgress, finalProgress);
   model.currentGateEvidence = currentGateEvidence(state);
   return model;
 }
@@ -419,6 +421,30 @@ async function readCurrentMotionProgress(projectRoot, projectState) {
   };
 }
 
+async function readCurrentFinalProgress(projectRoot, projectState) {
+  if (!['FINAL_QA', 'DELIVERED', 'USER_ACCEPTED', 'BLOCKED'].includes(projectState.state)) return null;
+  if (projectState.state === 'BLOCKED' && !['FINAL_RENDER', 'FINAL_QA'].includes(projectState.previousState)) return null;
+  const result = await validateArtifact(projectPath(projectRoot, 'review/metrics.json'), 'review-metrics');
+  if (!result.valid || !result.value.encodedMp4Digest) fail('E_DIRECTION_PAIR_INVALID', 'final workbench progress requires current integrity-valid review metrics');
+  const metrics = result.value;
+  const finalRender = projectState.gateEvidence?.findLast(({ gate, role, validity }) => gate === 'FINAL_RENDER' && role === 'FINAL_RENDER' && validity === 'valid');
+  const evidenceGate = projectState.state === 'USER_ACCEPTED' ? 'DELIVERED' : projectState.state;
+  const currentEvidence = projectState.gateEvidence?.filter(({ gate, validity }) => gate === evidenceGate && validity === 'valid') ?? [];
+  const expectedMetricsDigest = projectState.state === 'FINAL_QA'
+    ? currentEvidence.find(({ role }) => role === 'REVIEW_METRICS')?.digest
+    : currentEvidence.find(({ role }) => ['HARD_GATE_FAILURE', 'AGENT_VISUAL_INSPECTION', 'ENCODED_MP4_EVIDENCE'].includes(role))?.digest;
+  if (!finalRender || metrics.integrity.upstream?.FINAL_RENDER !== finalRender.digest || expectedMetricsDigest !== metrics.integrity.digest) {
+    fail('E_DIRECTION_PAIR_INVALID', 'review metrics do not match current final gate evidence');
+  }
+  const hardFailures = metrics.metrics.filter(({ status }) => status === 'fail').map(({ metricId }) => metricId);
+  return {
+    revision: metrics.revision, digest: metrics.integrity.digest, status: metrics.status,
+    encodedMp4Digest: metrics.encodedMp4Digest, hardFailures,
+    agentStatus: metrics.agentInspection.status, evidencePaths: [...metrics.agentInspection.evidencePaths],
+    outputPath: 'renders/final.mp4', reportPath: 'review/REVIEW_REPORT.md', evidencePackPath: 'review/final-evidence.html', contactSheetPath: `review/final-frames/${metrics.encodedMp4Digest}/contact-sheet.png`,
+  };
+}
+
 export async function buildPostLockWorkbench(projectRoot, dependencies = {}) {
   if (!dependencies.mutationGuard) {
     const mutationGuard = await acquireRepairGuard(projectRoot, dependencies.guardHooks);
@@ -429,16 +455,16 @@ export async function buildPostLockWorkbench(projectRoot, dependencies = {}) {
   const committed = await validateImmutableDirectionLockEvidence(projectRoot,
     dependencies[ASSET_RECOVERY_CAPABILITY] ? { [ASSET_RECOVERY_CAPABILITY]: true } : {});
   if (dependencies.afterDirectionRead) await dependencies.afterDirectionRead(committed);
-  const [assetManifest, motionProgress] = await Promise.all([
-    readCurrentAssetManifest(projectRoot, committed.state), readCurrentMotionProgress(projectRoot, committed.state),
+  const [assetManifest, motionProgress, finalProgress] = await Promise.all([
+    readCurrentAssetManifest(projectRoot, committed.state), readCurrentMotionProgress(projectRoot, committed.state), readCurrentFinalProgress(projectRoot, committed.state),
   ]);
   const html = committed.state.state === 'DIRECTOR_LOCK'
     ? renderLockSnapshotModel(committed.snapshotModel)
-    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel, assetManifest, motionProgress));
+    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel, assetManifest, motionProgress, finalProgress));
   await writeCurrentWorkbench(projectRoot, html);
   return {
     ok: true, path: CURRENT_WORKBENCH_PATH, digest: createHash('sha256').update(html).digest('hex'),
-    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate, assetManifest, motionProgress),
+    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate, assetManifest, motionProgress, finalProgress),
     stateRevision: committed.state.revision, lockSnapshotPath: committed.workbenchSnapshotPath, lockSnapshotDigest: committed.workbenchDigest,
   };
 }
@@ -456,18 +482,18 @@ export async function validatePostLockWorkbench(projectRoot, dependencies = {}) 
   }
   await assertRepairGuardOwnership(projectRoot, dependencies.mutationGuard);
   const committed = await validateImmutableDirectionLockEvidence(projectRoot);
-  const [assetManifest, motionProgress] = await Promise.all([
-    readCurrentAssetManifest(projectRoot, committed.state), readCurrentMotionProgress(projectRoot, committed.state),
+  const [assetManifest, motionProgress, finalProgress] = await Promise.all([
+    readCurrentAssetManifest(projectRoot, committed.state), readCurrentMotionProgress(projectRoot, committed.state), readCurrentFinalProgress(projectRoot, committed.state),
   ]);
   const currentFile = await readRegularWorkbenchFile(join(projectRoot, CURRENT_WORKBENCH_PATH), 'E_WORKBENCH_CURRENT_STALE', 'current post-lock workbench is missing or is not a regular file');
   const current = currentFile.bytes.toString('utf8');
   const expected = committed.state.state === 'DIRECTOR_LOCK'
     ? renderLockSnapshotModel(committed.snapshotModel)
-    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel, assetManifest, motionProgress));
+    : renderWorkbenchHtml(buildCurrentWorkbenchModel(committed.state, committed.workbenchDigest, committed.selectedCandidate, committed.snapshotModel, assetManifest, motionProgress, finalProgress));
   if (current !== expected) fail('E_WORKBENCH_CURRENT_STALE', 'current post-lock workbench does not match its current-state binding');
   return {
     ok: true, path: CURRENT_WORKBENCH_PATH, digest: createHash('sha256').update(current).digest('hex'),
-    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate, assetManifest, motionProgress),
+    binding: committed.state.state === 'DIRECTOR_LOCK' ? committed.snapshotModel.lockedBinding : currentWorkbenchBinding(committed.state, committed.workbenchDigest, committed.selectedCandidate, assetManifest, motionProgress, finalProgress),
     stateRevision: committed.state.revision, lockSnapshotDigest: committed.workbenchDigest,
   };
 }
