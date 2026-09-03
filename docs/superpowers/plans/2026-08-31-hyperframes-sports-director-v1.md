@@ -29,8 +29,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 9 — editorial timeline and approval rough cut | Complete | `eb6e47d74a3b8a462065123cfc447a33bc8fa361` | Authoritative phase-aware timeline validation, continuity/audio policies, and closed proxy rough-cut evidence are accepted; do not recreate. |
 | 10 — local director workbench and one approval | Complete | `4bfca059bd742a784149c47f30c81d37f6db2c74` | Local workbench, immutable review bundle, localhost session/approval transaction, and privacy-safe SVG direction prototypes are accepted; do not recreate. |
 | 11 — lock approved direction and enforce repair boundaries | Complete | `492ea9baf3b12a136d939c8ddfa7e693df2adad5` | Transactional single-approval design/Look lock, immutable lock evidence, mutable post-lock workbench, crash recovery, role-aware invalidation, and bounded repair are accepted; do not recreate. |
-| 12 — anchor-first Image Gen assets and combination proofs | Next | — | Consume the committed `DIRECTOR_LOCK`; accept one full-resolution Style Anchor and one representative real-footage/component proof before batch asset production. |
-| 13–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 12 — anchor-first Image Gen assets and combination proofs | Complete | `d59307de322cb2d6e2d97fa95681633326cbb2f7` | Anchor-first production, digest-bound Agent visual acceptance, representative/batch gates, durable crop/proof transactions, and final authority bindings are accepted; do not recreate. |
+| 13 — HyperFrames motion composition and scene ownership | Next | — | Consume the accepted Task 12 manifest, proofs, and gate authority; keep `MOTION_MAP` separate from assets and timeline. |
+| 14–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
