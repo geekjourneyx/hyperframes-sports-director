@@ -177,6 +177,15 @@ test('layout and contrast evidence cover the entire readable motion window at 10
   assert.ok(validateContrast({ layers: sparse, sceneSchema: input.sceneSchema, motionMap: input.motionMap }).hardErrors.some(({ code }) => code === 'E_CONTRAST_COVERAGE'));
 });
 
+test('contrast evidence is a one-to-one inventory of SCENE_SCHEMA readable layers', () => {
+  const input = fixture();
+  const duplicate = [...input.contrastLayers, structuredClone(input.contrastLayers[0])];
+  assert.ok(validateContrast({ layers: duplicate, sceneSchema: input.sceneSchema, motionMap: input.motionMap }).hardErrors.some(({ code }) => code === 'E_CONTRAST_INVENTORY'));
+  assert.ok(validateContrast({ layers: [], sceneSchema: input.sceneSchema, motionMap: input.motionMap }).hardErrors.some(({ code }) => code === 'E_CONTRAST_INVENTORY'));
+  const extra = [...input.contrastLayers, { ...structuredClone(input.contrastLayers[0]), layerId: 'layer-extra' }];
+  assert.ok(validateContrast({ layers: extra, sceneSchema: input.sceneSchema, motionMap: input.motionMap }).hardErrors.some(({ code }) => code === 'E_CONTRAST_INVENTORY'));
+});
+
 test('overlay wording and semantic token references are deterministic and group-typed', () => {
   const input = fixture();
   input.dataOverlays.overlays[0].wording = 'Record-breaking mountain conquest';

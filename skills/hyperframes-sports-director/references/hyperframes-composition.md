@@ -40,6 +40,20 @@ randomness, timers, or animation-frame render truth. GSAP, SVG, CSS, Lottie,
 and Three.js are selected only when their semantic role merits them; every
 role keeps a static SVG/CSS review fallback.
 
+Capture the same absolute times as composite, background-only, and layer/token
+matte passes, then store deterministic RGBA sample tuples in a project-relative
+proof bundle. Produce the gate inputs locally with:
+
+```text
+node scripts/render_motion_proofs.mjs --project <project> --proof review/motion-proofs/pixels.json
+```
+
+The producer resolves each sample's frozen color token, computes expected alpha
+composites, Delta E 2000, local contrast, and high-coverage matte status from
+the captured pixels, and writes the two closed evidence contracts. The
+consistency gate rehashes the proof bundle and recomputes every measurement;
+hand-authored ratios, Delta E values, or producer labels are not evidence.
+
 ## Gates
 
 Transitions use one of: spatial continuation, motion match, shape/mask carry,

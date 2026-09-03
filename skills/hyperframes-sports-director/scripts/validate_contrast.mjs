@@ -9,6 +9,15 @@ export function validateContrast({ layers = [], sceneSchema, motionMap, requireR
   const hardErrors = [];
   const owners = new Map((motionMap?.owners ?? []).map((owner) => [owner.ownerId, owner]));
   const readable = new Map((sceneSchema?.scenes ?? []).flatMap((scene) => (scene.readableLayers ?? []).map((layer) => [layer.layerId, { scene, layer, owner: owners.get(layer.ownerId) }])));
+  if (sceneSchema) {
+    const expectedIds = (sceneSchema.scenes ?? []).flatMap((scene) => (scene.readableLayers ?? []).map(({ layerId }) => layerId));
+    const actualIds = layers.map(({ layerId }) => layerId);
+    const inventory = new Set([...expectedIds, ...actualIds]);
+    const invalidInventory = expectedIds.length !== readable.size || inventory.size !== readable.size
+      || [...inventory].some((layerId) => expectedIds.filter((id) => id === layerId).length !== 1 || actualIds.filter((id) => id === layerId).length !== 1)
+      || layers.some((layer) => JSON.stringify(layer.readableInterval) !== JSON.stringify(readable.get(layer.layerId)?.layer.readableInterval));
+    if (invalidInventory) hardErrors.push(error('E_CONTRAST_INVENTORY', '/layers', 'contrast evidence must bind every SCENE_SCHEMA readable layer exactly once with its exact readable interval'));
+  }
   if (requireRenderedEvidence && layers.length === 0) hardErrors.push(error('E_CONTRAST_INPUT', '/layers', 'rendered local-contrast samples are required'));
   for (const [layerIndex, layer] of layers.entries()) {
     const path = `/layers/${layerIndex}`;

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { compilePausedTimelines } from '../lib/motion.mjs';
 import { installSceneRuntime } from '../../assets/hyperframes-project/src/scene-runtime.js';
+
+const digest = (character) => character.repeat(64);
 
 class StyleDeclaration {
   #values = new Map();
@@ -38,109 +41,115 @@ function runtimeDocument() {
   };
 }
 
-const compiled = {
-  clock: 'paused-absolute-time',
-  scenes: [{
-    sceneId: 'scene-climb',
-    background: {
-      backgroundId: 'background-climb', colorToken: 'color.background', assetId: 'asset-footage-climb',
-      staticFallback: { kind: 'svg', viewBox: '0 0 1920 1080', shapes: [
-        { type: 'path', d: 'M0 720 L560 480 L1120 690 L1920 360 L1920 1080 L0 1080 Z', colorToken: 'color.route' },
-        { type: 'path', d: 'M0 820 L640 590 L1280 730 L1920 510', colorToken: 'color.primaryText', opacity: 0.25 },
-      ] },
+function renderedLayer(stage, layerId) {
+  return stage.children.find((element) => element.dataset.hfLayer === layerId);
+}
+
+function productionInput() {
+  const designDigest = digest('a');
+  const lookDigest = digest('b');
+  const assetDigest = digest('c');
+  const sceneDigest = digest('d');
+  const motionDigest = digest('e');
+  const overlayDigest = digest('f');
+  return {
+    designSystem: { status: 'frozen', designRevision: 'design-1', integrity: { digest: designDigest } },
+    lookProfile: { status: 'frozen', lookRevision: 'look-1', integrity: { digest: lookDigest } },
+    assetManifest: {
+      status: 'frozen', designRevision: 'design-1', lookRevision: 'look-1', assetRevision: 'assets-1', integrity: { digest: assetDigest },
+      acceptance: { anchorDigest: digest('1'), representativeDigest: digest('2'), batches: [{ digest: digest('3') }] },
+      assets: [{
+        id: 'asset-route', narrativeRole: 'journey_anchor', colorToken: 'color.route', sourceKind: 'component-crop',
+        source: 'assets/components/route-mask.svg', alphaBounds: { left: 16, top: 12, width: 608, height: 96 },
+        expectedDisplayRect: { width: 640, height: 120 }, nativeEffectivePixels: { width: 640, height: 120 },
+        staticFallback: { kind: 'asset-alpha-mask', path: 'M16 84 L180 12 L360 96 L520 26 L624 92 L624 108 L16 108 Z', viewBox: '0 0 640 120' },
+      }],
     },
-    layers: [{
-      ownerId: 'owner-title', layerId: 'layer-title', assetId: null, sceneId: 'scene-climb', primitive: 'css',
-      staticFallback: 'svg-or-css', colorToken: 'color.primaryText', deterministicOffset: 0.25,
-      timing: { entry: [0, 1], hold: [1, 3], exit: [3, 4] }, proofPasses: ['background-only', 'layer-matte:layer-title', 'token-matte:color.primaryText'],
-      typographyRole: 'type.journeyTitle', evidenceFrameIds: ['frame-climb-01'],
-      layoutEvidence: {
-        textRect: [{ time: 1, x: 80, y: 90, width: 640, height: 120 }, { time: 3, x: 160, y: 90, width: 640, height: 120 }],
-        subjectRect: [], quietZone: [], safetyRegions: [], horizonRelation: 'above', screenDirection: 'left-to-right', motionDirection: 'forward',
-      },
-    }, {
-      ownerId: 'owner-route', layerId: 'layer-route', assetId: 'asset-route', sceneId: 'scene-climb', primitive: 'svg',
-      staticFallback: { kind: 'asset-alpha-mask', path: 'M0 84 L180 12 L360 96 L520 26 L640 92 L640 120 L0 120 Z', viewBox: '0 0 640 120' },
-      colorToken: 'color.route', deterministicOffset: 0.5,
-      timing: { entry: [0, 1], hold: [1, 3], exit: [3, 4] }, proofPasses: ['background-only', 'layer-matte:layer-route', 'token-matte:color.route'],
-      typographyRole: null, evidenceFrameIds: ['frame-climb-01'], layoutEvidence: null,
-    }, {
-      ownerId: 'owner-transition', layerId: 'layer-transition', assetId: null, sceneId: 'scene-climb', primitive: 'svg',
-      staticFallback: { kind: 'shape', path: 'M0 0 L480 0 L240 160 Z', viewBox: '0 0 480 160' },
-      colorToken: 'color.route', deterministicOffset: 0.75,
-      timing: { entry: [3, 3.5], hold: [3.5, 4], exit: [4, 4.5] }, proofPasses: ['layer-matte:layer-transition'],
-      typographyRole: null, evidenceFrameIds: ['frame-climb-04'], layoutEvidence: null,
-      transition: { midpointSeconds: 3.75, nonEmpty: true },
-    }],
-  }],
-};
+    sceneSchema: {
+      status: 'frozen', designRevision: 'design-1', lookRevision: 'look-1', integrity: { digest: sceneDigest },
+      designSystemDigest: designDigest, lookProfileDigest: lookDigest,
+      scenes: [{
+        sceneId: 'scene-climb', role: 'journey', colorTokens: ['color.primaryText', 'color.route'], shotIds: ['shot-climb'],
+        interval: { entry: [0, 0.5], hold: [0.5, 3.6], exit: [3.6, 4] },
+        background: {
+          backgroundId: 'background-climb', colorToken: 'color.background', assetId: 'media-climb',
+          source: { path: 'review/frames/climb-0024.png', digest: digest('4') }, geometry: { x: 0, y: 0, width: 1920, height: 1080 },
+          staticFallback: { kind: 'source-frame', path: 'review/frames/climb-0024.png', digest: digest('4'), viewBox: '0 0 1920 1080' },
+        },
+        readableLayers: [{
+          layerId: 'layer-title', ownerId: 'owner-title', readableInterval: [0, 4], typographyRole: 'type.journeyTitle',
+          textRect: [{ time: 0, x: 80, y: 90, width: 640, height: 120 }, { time: 4, x: 160, y: 90, width: 640, height: 120 }],
+          subjectRect: [{ time: 0, x: 1200, y: 400, width: 500, height: 900 }, { time: 4, x: 1200, y: 400, width: 500, height: 900 }], quietZone: [{ time: 0, x: 40, y: 40, width: 820, height: 200 }, { time: 4, x: 40, y: 40, width: 820, height: 200 }],
+          safetyRegions: [], horizonRelation: 'above', screenDirection: 'left-to-right', motionDirection: 'forward', evidenceFrameIds: ['frame-climb-01'],
+          staticFallback: { kind: 'glyph', text: 'SUMMIT APPROACH', viewBox: '0 0 640 120' },
+        }],
+      }],
+    },
+    motionMap: {
+      status: 'frozen', motionRevision: 'motion-1', designRevision: 'design-1', assetRevision: 'assets-1', integrity: { digest: motionDigest }, seed: 'runtime-seed',
+      designSystemDigest: designDigest, assetManifestDigest: assetDigest, sceneSchemaDigest: sceneDigest,
+      owners: [
+        { ownerId: 'owner-route', layerId: 'layer-route', assetId: 'asset-route', sceneId: 'scene-climb', primitive: 'svg', entryFrames: 15, holdFrames: 93, exitFrames: 12, colorToken: 'color.route', timing: { entry: [0, 0.5], hold: [0.5, 3.6], exit: [3.6, 4] }, proofPasses: ['background-only', 'layer-matte:layer-route', 'token-matte:color.route'] },
+        { ownerId: 'owner-title', layerId: 'layer-title', assetId: null, sceneId: 'scene-climb', primitive: 'css', entryFrames: 15, holdFrames: 93, exitFrames: 12, colorToken: 'color.primaryText', timing: { entry: [0, 0.5], hold: [0.5, 3.6], exit: [3.6, 4] }, proofPasses: ['background-only', 'layer-matte:layer-title', 'token-matte:color.primaryText'] },
+        { ownerId: 'owner-transition', layerId: 'layer-transition', assetId: null, sceneId: 'scene-climb', primitive: 'svg', entryFrames: 6, holdFrames: 1, exitFrames: 6, colorToken: 'color.route', timing: { entry: [3.7, 3.9], hold: [3.9, 3.94], exit: [3.94, 4.14] }, proofPasses: ['layer-matte:layer-transition'], transition: { relationship: 'motion-match', midpointSeconds: 3.92, nonEmpty: true, designReason: 'continues forward footage direction' }, staticFallback: { kind: 'shape', path: 'M0 0 L480 0 L240 160 Z', viewBox: '0 0 480 160' } },
+      ],
+    },
+    dataOverlays: { status: 'unavailable', integrity: { digest: overlayDigest }, normalizedFacts: {}, overlays: [] },
+    timeline: {
+      phase: 'final', designRevision: 'design-1', lookRevision: 'look-1', assetRevision: 'assets-1', motionRevision: 'motion-1',
+      assetManifestDigest: assetDigest, motionMapDigest: motionDigest, dataOverlaysDigest: overlayDigest,
+      items: [{ itemId: 'item-climb', destinationInSeconds: 0, destinationOutSeconds: 4, assetReferences: ['asset-route'], motionReferences: ['owner-route', 'owner-title', 'owner-transition'], transition: { kind: 'motion-match', ownerId: 'owner-transition' } }],
+    },
+  };
+}
 
-test('runtime proof passes paint semantic, measurable coverage instead of empty layers', () => {
+test('production compiler retains declared background, glyph, shape, and alpha-mask fallbacks', () => {
+  const compiled = compilePausedTimelines(productionInput());
+  const scene = compiled.scenes[0];
+  assert.equal(scene.background.source.path, 'review/frames/climb-0024.png');
+  assert.equal(scene.background.geometry.width, 1920);
+  assert.deepEqual(scene.layers.find(({ layerId }) => layerId === 'layer-title').staticFallback, { kind: 'glyph', text: 'SUMMIT APPROACH', viewBox: '0 0 640 120' });
+  assert.equal(scene.layers.find(({ layerId }) => layerId === 'layer-route').staticFallback.kind, 'asset-alpha-mask');
+  assert.equal(scene.layers.find(({ layerId }) => layerId === 'layer-route').source.path, 'assets/components/route-mask.svg');
+  assert.equal(scene.layers.find(({ layerId }) => layerId === 'layer-transition').staticFallback.path, 'M0 0 L480 0 L240 160 Z');
+});
+
+test('production-compiled runtime reuses source background and exact coverage at one absolute time', () => {
   const { document, stage } = runtimeDocument();
-  const runtime = installSceneRuntime({ document }, compiled);
-
+  const runtime = installSceneRuntime({ document }, compilePausedTimelines(productionInput()));
   const composite = runtime.__renderAt(2, 'composite');
-  const compositeLayer = composite.layers[0];
-  assert.deepEqual(compositeLayer.geometry, { x: 120, y: 90, width: 640, height: 120 });
-  assert.equal(compositeLayer.paint.colorToken, 'color.primaryText');
-  assert.equal(compositeLayer.paint.cssVariable, '--color-primaryText');
-  assert.equal(stage.children.length, 3, 'background, text glyphs, and graphic coverage are rendered');
-  assert.equal(stage.children[1].style.getPropertyValue('width'), '640px');
-  assert.equal(stage.children[1].style.getPropertyValue('height'), '120px');
-  assert.equal(stage.children[1].dataset.hfStaticFallback, 'svg-or-css');
-  assert.equal(stage.children[1].children[0].tagName, 'svg');
-  assert.equal(stage.children[1].children[0].children[0].tagName, 'text');
-  assert.equal(stage.children[1].children[0].children[0].textContent, 'type.journeyTitle');
-  assert.equal(stage.children[2].children[0].children[0].tagName, 'path', 'graphic fallback paints its declared alpha-mask path');
+  const title = composite.layers.find(({ layerId }) => layerId === 'layer-title');
+  const route = composite.layers.find(({ layerId }) => layerId === 'layer-route');
+  assert.equal(composite.background.source.path, 'review/frames/climb-0024.png');
+  assert.equal(stage.children[0].children[0].children[0].tagName, 'image');
+  assert.equal(stage.children[0].children[0].children[0].getAttribute('href'), 'review/frames/climb-0024.png');
+  assert.deepEqual(title.geometry, { x: 120, y: 90, width: 640, height: 120 });
+  assert.equal(renderedLayer(stage, 'layer-title').children[0].children[0].textContent, 'SUMMIT APPROACH');
+  assert.equal(renderedLayer(stage, 'layer-route').children[0].children[0].getAttribute('d'), 'M16 84 L180 12 L360 96 L520 26 L624 92 L624 108 L16 108 Z');
+  assert.equal(route.coverage.kind, 'asset-alpha-mask');
 
   const background = runtime.__renderAt(2, 'background-only');
-  assert.deepEqual(background.layers, []);
-  assert.equal(background.background.assetId, 'asset-footage-climb');
-  assert.equal(stage.children.length, 1, 'background-only retains the same full-frame visual content');
-  assert.equal(stage.children[0].style.getPropertyValue('background-color'), 'var(--color-background)');
-  assert.equal(stage.children[0].style.getPropertyValue('width'), '100%');
-  assert.equal(stage.children[0].style.getPropertyValue('height'), '100%');
-  assert.equal(stage.children[0].children[0].tagName, 'svg');
-  assert.equal(stage.children[0].children[0].children.length, 2, 'background fallback preserves two visual paths rather than a pure color plane');
+  assert.deepEqual(background.background, composite.background);
+  assert.equal(stage.children[0].children[0].children[0].getAttribute('href'), 'review/frames/climb-0024.png');
 
-  const layerMatte = runtime.__renderAt(2, 'layer-matte:layer-title');
-  assert.deepEqual(layerMatte.layers[0].geometry, { x: 120, y: 90, width: 640, height: 120 });
-  assert.equal(stage.children.length, 2, 'layer matte paints its coverage over the matte background');
-  assert.equal(stage.children[1].dataset.hfMatte, 'layer');
+  runtime.__renderAt(2, 'token-matte:color.route');
   assert.equal(stage.children[0].style.getPropertyValue('background-color'), 'var(--hf-matte-background)');
-  assert.equal(stage.children[1].children[0].children[0].getAttribute('fill'), 'var(--hf-matte-coverage)');
-  assert.equal(stage.children[1].children[0].children[0].tagName, 'text', 'text matte is a glyph, not its text rectangle');
+  assert.equal(renderedLayer(stage, 'layer-route').children[0].children[0].getAttribute('fill'), 'var(--hf-matte-coverage)');
+  assert.equal(renderedLayer(stage, 'layer-route').children[0].children[0].getAttribute('d'), 'M16 84 L180 12 L360 96 L520 26 L624 92 L624 108 L16 108 Z');
+  assert.equal(runtime.__layerEvidence['layer-route'].coverage.path, 'M16 84 L180 12 L360 96 L520 26 L624 92 L624 108 L16 108 Z');
 
-  const tokenMatte = runtime.__renderAt(2, 'token-matte:color.route');
-  assert.equal(tokenMatte.layers[0].paint.colorToken, 'color.route');
-  assert.equal(stage.children[1].dataset.hfMatte, 'token');
-  assert.equal(stage.children[1].children[0].children[0].tagName, 'path', 'token matte uses graphic path coverage');
-  assert.deepEqual(runtime.__layerEvidence['layer-title'].geometry, { x: 120, y: 90, width: 640, height: 120 });
-  assert.equal(runtime.__layerEvidence['layer-route'].colorToken, tokenMatte.layers[0].paint.colorToken);
-  assert.equal(runtime.__layerEvidence['layer-route'].coverage.kind, 'asset-alpha-mask');
-
-  const transitionMatte = runtime.__renderAt(3.75, 'layer-matte:layer-transition');
-  assert.equal(transitionMatte.layers.length, 1);
-  assert.equal(stage.children[1].children[0].children[0].getAttribute('fill'), 'var(--hf-matte-coverage)');
+  runtime.__renderAt(3.92, 'layer-matte:layer-transition');
+  assert.equal(renderedLayer(stage, 'layer-transition').children[0].children[0].getAttribute('d'), 'M0 0 L480 0 L240 160 Z');
   assert.equal(runtime.__layerEvidence['layer-transition'].coverage.nonEmpty, true);
 });
 
-test('runtime geometry is identical for repeated absolute-time proof renders', () => {
-  const { document } = runtimeDocument();
-  const runtime = installSceneRuntime({ document }, compiled);
-  const first = runtime.__renderAt(2, 'token-matte:color.route');
-  const second = runtime.__renderAt(2, 'token-matte:color.route');
-  assert.deepEqual(second, first);
-});
-
-test('static background fallback remains visible when a compiled scene has no background descriptor', () => {
-  const noBackground = structuredClone(compiled);
-  delete noBackground.scenes[0].background;
+test('production-compiled runtime does not fabricate glyph coverage when the declared text is absent', () => {
+  const input = productionInput();
+  delete input.sceneSchema.scenes[0].readableLayers[0].staticFallback.text;
   const { document, stage } = runtimeDocument();
-  const runtime = installSceneRuntime({ document }, noBackground);
+  const runtime = installSceneRuntime({ document }, compilePausedTimelines(input));
 
   runtime.__renderAt(2, 'composite');
-  assert.equal(stage.children[0].children[0].children.length, 1, 'composite has deterministic fallback background content');
-  runtime.__renderAt(2, 'background-only');
-  assert.equal(stage.children[0].children[0].children.length, 1, 'background-only preserves that same fallback content');
+  assert.equal(renderedLayer(stage, 'layer-title').children[0].children.length, 0);
+  assert.equal(runtime.__layerEvidence['layer-title'].coverage.nonEmpty, false);
 });

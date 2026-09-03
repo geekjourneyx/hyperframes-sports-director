@@ -56,17 +56,20 @@ function setAttributes(element, attributes) {
 
 function fallbackDescription(layer, geometry) {
   if (layer.staticFallback && typeof layer.staticFallback === 'object') return layer.staticFallback;
-  if (layer.typographyRole) return { kind: 'text', text: layer.text ?? layer.typographyRole, viewBox: `0 0 ${geometry.width} ${geometry.height}` };
-  return {
-    kind: 'shape', viewBox: `0 0 ${geometry.width} ${geometry.height}`,
-    path: `M0 ${geometry.height} L${geometry.width * 0.28} ${geometry.height * 0.2} L${geometry.width * 0.62} ${geometry.height * 0.8} L${geometry.width} 0 L${geometry.width} ${geometry.height} Z`,
-  };
+  return { kind: 'unavailable', viewBox: `0 0 ${geometry.width} ${geometry.height}` };
+}
+
+function fallbackHasCoverage(fallback) {
+  if (fallback.kind === 'text' || fallback.kind === 'glyph') return typeof fallback.text === 'string' && fallback.text.length > 0;
+  if (fallback.kind === 'source-frame') return typeof (fallback.path ?? fallback.source?.path) === 'string';
+  if (Array.isArray(fallback.shapes)) return fallback.shapes.length > 0;
+  return typeof fallback.path === 'string' && fallback.path.length > 0;
 }
 
 function coverageFor(layer, geometry) {
   const fallback = fallbackDescription(layer, geometry);
   return {
-    kind: fallback.kind, nonEmpty: true, source: 'static-fallback',
+    kind: fallback.kind, nonEmpty: fallbackHasCoverage(fallback), source: 'static-fallback',
     geometry: structuredClone(geometry), path: fallback.path ?? null,
   };
 }
@@ -91,13 +94,20 @@ function appendFallbackSvg(document, container, fallback, geometry, colorToken, 
     width: '100%', height: '100%', viewBox: fallback.viewBox ?? `0 0 ${geometry.width} ${geometry.height}`,
     preserveAspectRatio: 'none', 'data-hf-static-fallback': fallback.kind ?? 'shape',
   });
-  if (fallback.kind === 'text') {
-    const text = setAttributes(createSvgElement(document, 'text'), { x: 0, y: geometry.height * 0.75, fill });
-    text.textContent = fallback.text ?? colorToken;
-    svg.append(text);
+  if (fallback.kind === 'text' || fallback.kind === 'glyph') {
+    if (fallbackHasCoverage(fallback)) {
+      const text = setAttributes(createSvgElement(document, 'text'), { x: 0, y: geometry.height * 0.75, fill });
+      text.textContent = fallback.text;
+      svg.append(text);
+    }
+  } else if (fallback.kind === 'source-frame') {
+    const image = setAttributes(createSvgElement(document, 'image'), {
+      href: fallback.path ?? fallback.source?.path, x: 0, y: 0, width: geometry.width, height: geometry.height,
+    });
+    svg.append(image);
   } else if (Array.isArray(fallback.shapes)) {
     for (const shape of fallback.shapes) appendShape(document, svg, shape, colorToken, fill);
-  } else {
+  } else if (fallback.path) {
     appendShape(document, svg, { type: 'path', path: fallback.path }, colorToken, fill);
   }
   container.append(svg);
@@ -106,18 +116,13 @@ function appendFallbackSvg(document, container, fallback, geometry, colorToken, 
 function activeBackground(compiled, activeLayers, time) {
   const activeSceneIds = new Set(activeLayers.map(({ sceneId }) => sceneId));
   const scene = compiled.scenes.find(({ sceneId }) => activeSceneIds.has(sceneId));
-  const background = scene?.background ?? {};
-  const assetLayer = activeLayers.find(({ assetId }) => assetId) ?? activeLayers[0];
-  const staticFallback = background.staticFallback ?? {
-    kind: 'svg', viewBox: '0 0 1920 1080', shapes: [{
-      type: 'path', d: 'M0 810 L540 540 L1080 750 L1620 420 L1920 570 L1920 1080 L0 1080 Z',
-      colorToken: assetLayer?.colorToken ?? 'color.background', opacity: 0.18,
-    }],
-  };
+  const background = scene?.background ?? null;
   return {
-    backgroundId: background.backgroundId ?? scene?.sceneId ?? 'semantic-background',
-    assetId: background.assetId ?? null, time, colorToken: background.colorToken ?? 'color.background',
-    staticFallback: structuredClone(staticFallback),
+    backgroundId: background?.backgroundId ?? scene?.sceneId ?? 'semantic-background',
+    assetId: background?.assetId ?? null, source: structuredClone(background?.source ?? null), time,
+    geometry: structuredClone(background?.geometry ?? { x: 0, y: 0, width: 1920, height: 1080 }),
+    colorToken: background?.colorToken ?? 'color.background',
+    staticFallback: structuredClone(background?.staticFallback ?? { kind: 'unavailable' }),
   };
 }
 
@@ -131,7 +136,7 @@ function appendBackgroundPlane(target, stage, background, mode) {
   plane.style.setProperty('width', '100%');
   plane.style.setProperty('height', '100%');
   plane.style.setProperty('background-color', matte ? 'var(--hf-matte-background)' : `var(${cssVariableForToken(background.colorToken)})`);
-  if (!matte) appendFallbackSvg(target.document, plane, background.staticFallback, { x: 0, y: 0, width: 1920, height: 1080 }, background.colorToken);
+  if (!matte) appendFallbackSvg(target.document, plane, background.staticFallback, background.geometry, background.colorToken);
   stage.append(plane);
 }
 
@@ -142,7 +147,7 @@ function appendLayerPlane(target, stage, layer, mode) {
   element.dataset.hfOwner = layer.ownerId;
   element.dataset.hfPrimitive = layer.primitive;
   element.dataset.hfColorToken = layer.colorToken;
-  element.dataset.hfStaticFallback = typeof layer.staticFallback === 'string' ? layer.staticFallback : layer.staticFallback.kind;
+  element.dataset.hfStaticFallback = typeof layer.staticFallback === 'string' ? layer.staticFallback : layer.staticFallback?.kind ?? 'unavailable';
   if (matte) element.dataset.hfMatte = matte;
   element.style.setProperty('left', `${layer.geometry.x}px`);
   element.style.setProperty('top', `${layer.geometry.y}px`);

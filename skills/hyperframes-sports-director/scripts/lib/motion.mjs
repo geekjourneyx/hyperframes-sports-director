@@ -120,11 +120,20 @@ export function validateMotionContract({ designSystem, lookProfile, assetManifes
   return { valid: hardErrors.length === 0, hardErrors, errors: hardErrors };
 }
 
-function ownerLayer(owner, scene, seed) {
+function sourceGeometry(asset) {
+  if (asset?.alphaBounds) return { x: asset.alphaBounds.left, y: asset.alphaBounds.top, width: asset.alphaBounds.width, height: asset.alphaBounds.height };
+  if (asset?.expectedDisplayRect) return { x: 0, y: 0, width: asset.expectedDisplayRect.width, height: asset.expectedDisplayRect.height };
+  return null;
+}
+
+function ownerLayer(owner, scene, seed, assetsById) {
   const readable = (scene.readableLayers ?? []).find(({ layerId }) => layerId === owner.layerId);
+  const asset = owner.assetId ? assetsById.get(owner.assetId) : null;
   return {
     ownerId: owner.ownerId, layerId: owner.layerId, assetId: owner.assetId ?? null, sceneId: owner.sceneId,
-    primitive: owner.primitive, staticFallback: ['svg', 'css', 'lottie', 'three', 'gsap'].includes(owner.primitive) ? 'svg-or-css' : 'static',
+    primitive: owner.primitive, staticFallback: structuredClone(readable?.staticFallback ?? owner.staticFallback ?? asset?.staticFallback ?? null),
+    source: asset?.source ? { path: asset.source, sourceKind: asset.sourceKind ?? null, alphaBounds: structuredClone(asset.alphaBounds ?? null) } : null,
+    sourceGeometry: sourceGeometry(asset),
     colorToken: owner.colorToken, timing: owner.timing, transition: owner.transition ?? null,
     deterministicOffset: Number(seededUnit(seed, owner.ownerId).toFixed(9)), proofPasses: [...(owner.proofPasses ?? [])].sort(),
     evidenceFrameIds: [...(readable?.evidenceFrameIds ?? [])].sort(), typographyRole: readable?.typographyRole ?? null,
@@ -142,12 +151,14 @@ export function compilePausedTimelines(input = {}) {
   if (!validation.valid) { const error = new Error('motion contract is invalid'); error.code = 'E_MOTION_CONTRACT'; error.diagnostics = validation.hardErrors; throw error; }
   const seed = input.motionMap.seed;
   const ownerByScene = Map.groupBy(input.motionMap.owners, ({ sceneId }) => sceneId);
+  const assetsById = new Map((input.assetManifest.assets ?? []).map((asset) => [asset.id ?? asset.assetId, asset]));
   return {
     version: '1.0.0', seed, clock: 'paused-absolute-time', modes: ['composite', 'background-only', 'layer-matte:<layerId>', 'token-matte:<semanticToken>'],
     overlays: resolveDataOverlayDisplay(input.dataOverlays, input.normalizedActivityFacts ?? input.dataOverlays?.normalizedFacts ?? input.activity?.metrics ?? {}),
     scenes: input.sceneSchema.scenes.map((scene) => ({
       sceneId: scene.sceneId, intervals: structuredClone(scene.interval),
-      layers: (ownerByScene.get(scene.sceneId) ?? []).map((owner) => ownerLayer(owner, scene, seed)).sort((left, right) => left.layerId.localeCompare(right.layerId)),
+      background: structuredClone(scene.background ?? null),
+      layers: (ownerByScene.get(scene.sceneId) ?? []).map((owner) => ownerLayer(owner, scene, seed, assetsById)).sort((left, right) => left.layerId.localeCompare(right.layerId)),
     })).sort((left, right) => left.sceneId.localeCompare(right.sceneId)),
   };
 }

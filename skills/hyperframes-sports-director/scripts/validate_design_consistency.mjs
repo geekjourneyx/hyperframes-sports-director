@@ -11,6 +11,7 @@ import { validateMotionContract } from './lib/motion.mjs';
 import { validateSceneLayout } from './lib/layout.mjs';
 import { commitMotionCompositionState } from './lib/project-state.mjs';
 import { validateTimeline } from './lib/timeline.mjs';
+import { buildRenderedProofEvidence, proofEvidenceEqual } from './lib/proof-evidence.mjs';
 import { validateColorPipeline } from './validate_color_pipeline.mjs';
 import { validateContrast } from './validate_contrast.mjs';
 import { validateDesignSystem } from './validate_design_system.mjs';
@@ -24,17 +25,23 @@ function exactDigestMap(actual, expected) {
   return JSON.stringify(Object.keys(actual ?? {}).sort()) === JSON.stringify(keys) && keys.every((key) => actual[key] === expected[key]);
 }
 
-export function validateRenderedEvidenceAuthority({ colorEvidence, contrastEvidence, authorities, renderedBytes } = {}) {
+export function validateRenderedEvidenceAuthority({ colorEvidence, contrastEvidence, authorities, renderedBytes, proof, documents, renderedArtifact } = {}) {
   const errors = [];
+  const allAuthorityUpstream = { assetManifest: authorities?.assetManifest, designSystem: authorities?.designSystem, lookProfile: authorities?.lookProfile,
+    motionMap: authorities?.motionMap, sceneSchema: authorities?.sceneSchema };
   const pairs = [
-    ['color', colorEvidence, { designSystem: authorities?.designSystem, lookProfile: authorities?.lookProfile, motionMap: authorities?.motionMap, renderedBytes: renderedBytes?.color }],
-    ['contrast', contrastEvidence, { sceneSchema: authorities?.sceneSchema, motionMap: authorities?.motionMap, renderedBytes: renderedBytes?.contrast }],
+    ['color', colorEvidence, { ...allAuthorityUpstream, renderedBytes: renderedBytes?.color }],
+    ['contrast', contrastEvidence, { ...allAuthorityUpstream, renderedBytes: renderedBytes?.contrast }],
   ];
   for (const [role, evidence, upstream] of pairs) {
     if (evidence?.producerCommand !== 'render_motion_proofs.mjs') errors.push({ code: 'E_DESIGN_EVIDENCE_PRODUCER', role });
     if (!verifyArtifactIntegrity(evidence).valid) errors.push({ code: 'E_DESIGN_EVIDENCE_INTEGRITY', role });
     if (evidence?.renderedArtifact?.digest !== renderedBytes?.[role] || !exactDigestMap(evidence?.integrity?.upstream, upstream)) errors.push({ code: 'E_DESIGN_EVIDENCE_LINEAGE', role });
   }
+  try {
+    const expected = buildRenderedProofEvidence({ proof, documents, renderedArtifact });
+    if (!proofEvidenceEqual(colorEvidence, expected.colorEvidence) || !proofEvidenceEqual(contrastEvidence, expected.contrastEvidence)) errors.push({ code: 'E_DESIGN_EVIDENCE_MEASUREMENT' });
+  } catch (cause) { errors.push({ code: 'E_DESIGN_EVIDENCE_MEASUREMENT', cause: cause.code ?? 'E_PROOF_INPUT' }); }
   return { valid: errors.length === 0, errors };
 }
 
@@ -80,10 +87,14 @@ export async function validateDesignConsistencyFile({ project }) {
     color: await sha256File(projectPath(project, colorEvidence.renderedArtifact.path)),
     contrast: await sha256File(projectPath(project, contrastEvidence.renderedArtifact.path)),
   };
+  const sameRenderedSource = colorEvidence.renderedArtifact.path === contrastEvidence.renderedArtifact.path
+    && colorEvidence.renderedArtifact.digest === contrastEvidence.renderedArtifact.digest;
+  if (!sameRenderedSource) { const cause = new Error('rendered evidence must share one current proof pixel bundle'); cause.code = 'E_DESIGN_EVIDENCE'; throw cause; }
+  const proof = JSON.parse(await readFile(projectPath(project, colorEvidence.renderedArtifact.path), 'utf8'));
   const evidenceAuthority = validateRenderedEvidenceAuthority({ colorEvidence, contrastEvidence, renderedBytes, authorities: {
-    designSystem: input.designSystem.integrity.digest, lookProfile: input.lookProfile.integrity.digest,
+    designSystem: input.designSystem.integrity.digest, lookProfile: input.lookProfile.integrity.digest, assetManifest: input.assetManifest.integrity.digest,
     motionMap: input.motionMap.integrity.digest, sceneSchema: input.sceneSchema.integrity.digest,
-  } });
+  }, proof, documents: input, renderedArtifact: colorEvidence.renderedArtifact });
   if (!evidenceAuthority.valid) { const cause = new Error('rendered design evidence authority is stale'); cause.code = 'E_DESIGN_EVIDENCE'; cause.diagnostics = evidenceAuthority.errors; throw cause; }
   input.renderedTokenSamples = colorEvidence.renderedTokenSamples;
   input.colorVisionProofs = colorEvidence.colorVisionProofs;
