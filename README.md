@@ -34,9 +34,44 @@ impersonate footage or invent metrics.
 npx skills add geekjourneyx/hyperframes-sports-director
 ```
 
-Restart Codex after installation. Runtime requirements are Node.js 22.12+,
-local `ffmpeg` and `ffprobe`, and the filters reported by the Skill's capability
-check.
+Restart Codex after installation.
+
+## Requirements
+
+| Dependency | Requirement | Used for |
+| --- | --- | --- |
+| Node.js | **22.12.0+** | Skill scripts and contract validation |
+| FFmpeg + ffprobe | A full local build with H.264, AAC, and WebP support | Proxies, evidence frames, rendering, and closed-file inspection |
+| FFmpeg filters | `blackdetect`, `freezedetect`, `silencedetect`, `ebur128`, `ssim` | Delivery hard gates |
+| Sharp | **0.35.4** | Deterministic image decoding and raster proofs |
+| HyperFrames scaffolds | Bundled with this Skill | Visual direction and motion composition |
+
+Install the system media tools with your package manager. On macOS, use the
+full Homebrew formula because the regular formula omits required codecs:
+
+```bash
+brew install ffmpeg-full
+export PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"
+```
+
+On Ubuntu or Debian:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+```
+
+For a repository checkout, install the pinned Node dependencies and verify the
+runtime before processing private media:
+
+```bash
+npm ci
+node skills/hyperframes-sports-director/scripts/check_install.mjs --json
+```
+
+The check must return `"ok": true`. Missing stabilization filters
+(`vidstabdetect`, `vidstabtransform`) use the documented conservative fallback;
+all other missing requirements stop the run.
 
 ## How it works
 
