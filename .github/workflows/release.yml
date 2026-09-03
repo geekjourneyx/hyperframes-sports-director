@@ -1,0 +1,53 @@
+name: Release archive
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm ci
+      - name: Read package version
+        id: version
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        run: node skills/hyperframes-sports-director/scripts/check_release.mjs --check-only --tag "$GITHUB_REF_NAME"
+      - run: npm test
+      - run: npm run test:contracts
+      - run: npm run test:media
+      - run: npm run test:skill
+      - run: npm run eval
+      - run: npm run check
+
+  archive:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Read package version
+        id: version
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+      - run: npm run release:dry -- --tag "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperframes-sports-director-v${{ steps.version.outputs.version }}
+          path: |
+            dist/hyperframes-sports-director-v${{ steps.version.outputs.version }}.skill
+            dist/hyperframes-sports-director-v${{ steps.version.outputs.version }}.skill.sha256
