@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import sharp from 'sharp';
 
 import { computeArtifactDigest } from '../../scripts/lib/contracts.mjs';
 import { renderWorkbenchHtml } from '../../scripts/lib/director-workbench.mjs';
@@ -69,7 +70,9 @@ export async function generateFixtures(root) {
   await ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=1', '-frames:v', '1', orientedJpeg]);
   await addExifOrientation(orientedJpeg, 6);
   await ffmpeg(['-f', 'lavfi', '-i', 'color=c=0x336699:size=120x160:rate=1', '-frames:v', '1', join(nested, '20260901T120300Z-portrait.png')]);
-  await ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=144x96:rate=1', '-frames:v', '1', '-c:v', 'libwebp', join(root, '20260901T120400Z-photo.webp')]);
+  await sharp({
+    create: { width: 144, height: 96, channels: 3, background: '#336699' },
+  }).webp().toFile(join(root, '20260901T120400Z-photo.webp'));
   await ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=1000:sample_rate=48000:duration=1', '-c:a', 'pcm_s16le', join(root, '20260901T120500Z-tone.wav')]);
   await ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=1', '-c:a', 'aac', join(root, '20260901T120600Z-music.m4a')]);
 

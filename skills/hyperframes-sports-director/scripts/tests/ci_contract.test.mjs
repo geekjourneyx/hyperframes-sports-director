@@ -13,3 +13,13 @@ test('contracts CI installs ffmpeg on every matrix runner before contract tests'
   assert.match(setup, /if: runner\.os == 'Linux'[\s\S]*apt-get install -y ffmpeg/);
   assert.match(setup, /if: runner\.os == 'macOS'[\s\S]*brew install ffmpeg/);
 });
+
+test('cross-platform fixtures do not require the optional ffmpeg libwebp encoder', async () => {
+  const source = await readFile(
+    'skills/hyperframes-sports-director/evals/fixtures/generate-fixtures.mjs',
+    'utf8',
+  );
+
+  assert.doesNotMatch(source, /'-c:v', 'libwebp'/);
+  assert.match(source, /sharp\([\s\S]*\.webp\(\)/);
+});
