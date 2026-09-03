@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import sharp from 'sharp';
 
@@ -19,6 +20,16 @@ import {
 
 const digest = (character) => character.repeat(64);
 const stamp = (value) => { value.integrity.digest = computeArtifactDigest(value); return value; };
+
+function spectralPower(bytes, frequency, sampleRate = 48000) {
+  const samples = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+  let sine = 0; let cosine = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const angle = 2 * Math.PI * frequency * index / sampleRate;
+    sine += samples[index] * Math.sin(angle); cosine += samples[index] * Math.cos(angle);
+  }
+  return Math.hypot(sine, cosine);
+}
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'hyperframes-final-'));
@@ -165,7 +176,7 @@ test('Task 13 paused timelines drive glyph, data, and transition pixels at absol
   input.assetManifest.integrity.digest = computeArtifactDigest(input.assetManifest);
   input.sceneSchema.designSystemDigest = input.designSystem.integrity.digest;
   input.sceneSchema.lookProfileDigest = input.lookProfile.integrity.digest;
-  input.sceneSchema.scenes = [{ sceneId: 'scene-depart', role: 'journey', colorTokens: ['color.primaryText', 'color.route'], shotIds: [], interval: { entry: [0, .1], hold: [.1, .3], exit: [.3, .4] }, readableLayers: [{ layerId: 'layer-title', ownerId: 'owner-title', readableInterval: [0, .4], typographyRole: 'type.chapterTitle', textRect: [{ time: 0, x: 80, y: 80, width: 640, height: 120 }, { time: .4, x: 80, y: 80, width: 640, height: 120 }], subjectRect: [{ time: 0, x: 1200, y: 400, width: 500, height: 500 }, { time: .4, x: 1200, y: 400, width: 500, height: 500 }], quietZone: [{ time: 0, x: 40, y: 40, width: 800, height: 200 }, { time: .4, x: 40, y: 40, width: 800, height: 200 }], safetyRegions: [], horizonRelation: 'above', screenDirection: 'static', motionDirection: 'static', evidenceFrameIds: ['frame-title'], staticFallback: { kind: 'glyph', text: 'RIDE', viewBox: '0 0 640 120' } }] }];
+  input.sceneSchema.scenes = [{ sceneId: 'scene-depart', role: 'journey', colorTokens: ['color.primaryText', 'color.route'], shotIds: [], interval: { entry: [0, .1], hold: [.1, .3], exit: [.3, .4] }, readableLayers: [{ layerId: 'layer-title', ownerId: 'owner-title', readableInterval: [0, .4], typographyRole: 'type.chapterTitle', textRect: [{ time: 0, x: 80, y: 80, width: 640, height: 120 }, { time: .4, x: 280, y: 80, width: 320, height: 60 }], subjectRect: [{ time: 0, x: 1200, y: 400, width: 500, height: 500 }, { time: .4, x: 1200, y: 400, width: 500, height: 500 }], quietZone: [{ time: 0, x: 40, y: 40, width: 1000, height: 200 }, { time: .4, x: 40, y: 40, width: 1000, height: 200 }], safetyRegions: [], horizonRelation: 'above', screenDirection: 'static', motionDirection: 'static', evidenceFrameIds: ['frame-title'], staticFallback: { kind: 'glyph', text: 'RIDE', viewBox: '0 0 640 120' } }] }];
   input.sceneSchema.integrity.digest = computeArtifactDigest(input.sceneSchema);
   input.motionMap.sceneSchemaDigest = input.sceneSchema.integrity.digest;
   input.motionMap.owners = [];
@@ -194,9 +205,13 @@ test('Task 13 paused timelines drive glyph, data, and transition pixels at absol
   input.projectState.assetAcceptance = { stage: 'batch', manifestDigest: input.assetManifest.integrity.digest };
   const plan = await compileFinalRenderPlan(input);
   assert.equal(plan.hyperFramesComposition.clock, 'paused-absolute-time');
-  assert.ok(plan.chapters[0].filterComplex.includes("drawtext=text='RIDE'"));
+  assert.ok(plan.chapters[0].generatedLayers.find(({ layerId }) => layerId === 'layer-title').svg.includes('RIDE'));
   assert.ok(plan.chapters[0].filterComplex.includes("drawtext=text='100 m'"));
-  assert.ok(plan.chapters[0].filterComplex.includes('drawbox='));
+  assert.ok(plan.chapters[0].filterComplex.includes('overlay='));
+  assert.ok(plan.chapters[0].generatedLayers.find(({ layerId }) => layerId === 'layer-transition').svg.includes('M0 0 L200 0 L200 200 L0 200 Z'));
+  const titleSamples = plan.chapters[0].runtimeEvidence.find(({ layerId }) => layerId === 'layer-title').samples;
+  assert.ok(titleSamples.at(-1).geometry.x > titleSamples[0].geometry.x, 'entry/hold/exit samples use Task 13 runtime geometry');
+  assert.ok(titleSamples.at(-1).geometry.width < titleSamples[0].geometry.width);
   const rendered = await executeFinalRenderPlan(plan);
   const frame = join(input.project, 'transition.png');
   await runFfmpeg(['-ss', '0.33', '-i', join(input.project, rendered.artifact), '-frames:v', '1', frame]);
@@ -204,30 +219,82 @@ test('Task 13 paused timelines drive glyph, data, and transition pixels at absol
   let redPixels = 0;
   for (let offset = 0; offset < data.length; offset += 3) if (data[offset] > 180 && data[offset + 1] < 100) redPixels += 1;
   assert.ok(redPixels > 100, 'transition fallback produces actual red pixels at its absolute midpoint');
+  const whiteCounts = [];
+  for (const [index, time] of [0.05, 0.25].entries()) {
+    const path = join(input.project, `title-${index}.png`);
+    await runFfmpeg(['-ss', String(time), '-i', join(input.project, rendered.artifact), '-frames:v', '1', path]);
+    const pixels = await sharp(path).raw().toBuffer();
+    let count = 0;
+    for (let offset = 0; offset < pixels.length; offset += 3) if (pixels[offset] > 220 && pixels[offset + 1] > 220 && pixels[offset + 2] > 220) count += 1;
+    whiteCounts.push(count);
+  }
+  assert.ok(whiteCounts[0] > whiteCounts[1], 'runtime width/height interpolation changes encoded glyph coverage');
 });
 
 test('variable speed curves, approved treatments, audio bridges, and loop crossfade compile and keep real A/V aligned', async () => {
   const input = await fixture();
-  input.sceneSchema.scenes = [{ sceneId: 'scene-speed', role: 'journey', colorTokens: [], shotIds: [], interval: { entry: [0, .05], hold: [.05, .2], exit: [.2, .25] }, readableLayers: [] }];
+  input.sceneSchema.scenes = [{ sceneId: 'scene-speed', role: 'journey', colorTokens: [], shotIds: [], interval: { entry: [0, .05], hold: [.05, .18], exit: [.18, .225] }, readableLayers: [] }];
   input.sceneSchema.integrity.digest = computeArtifactDigest(input.sceneSchema);
   input.motionMap.sceneSchemaDigest = input.sceneSchema.integrity.digest;
   input.motionMap.owners = [];
   input.motionMap.integrity.digest = computeArtifactDigest(input.motionMap);
   input.timeline.items = [input.timeline.items[0]];
-  Object.assign(input.timeline.items[0], { sourceOutSeconds: .4, destinationOutSeconds: .25, playbackRateCurve: [{ sourceTimeSeconds: 0, rate: 1 }, { sourceTimeSeconds: .1, rate: 2 }, { sourceTimeSeconds: .4, rate: 2 }], transform: { stabilization: { mode: 'conservative', cropFraction: .05 }, cropReframe: { x: .05, y: .05, width: .9, height: .9 }, stillMotion: null }, audioPolicy: { sourceGainDb: 0, denoise: false, bridge: 'l-cut' } });
+  Object.assign(input.timeline.items[0], { sourceInSeconds: .05, sourceOutSeconds: .4, destinationOutSeconds: .225, playbackRateCurve: [{ sourceTimeSeconds: .05, rate: 1 }, { sourceTimeSeconds: .15, rate: 2 }, { sourceTimeSeconds: .4, rate: 2 }], transform: { stabilization: { mode: 'conservative', cropFraction: .05 }, cropReframe: { x: .05, y: .05, width: .9, height: .9 }, stillMotion: null }, audioPolicy: { sourceGainDb: 0, denoise: false, bridge: 'l-cut' } });
   input.timeline.music = { mode: 'local', path: 'media/music/approved.wav', trimInSeconds: 0, loop: true, loopCrossfadeSeconds: .05, fadeInSeconds: .02, fadeOutSeconds: .02, gainDb: -18, duckUnderSpeechDb: -12 };
   input.timeline.motionMapDigest = input.motionMap.integrity.digest;
   input.timeline.integrity.digest = computeArtifactDigest(input.timeline);
   const plan = await compileFinalRenderPlan(input);
-  assert.match(plan.chapters[0].filterComplex, /trim=start=0:end=0\.1.*atempo=1/);
-  assert.match(plan.chapters[0].filterComplex, /trim=start=0\.1:end=0\.4.*atempo=2/);
-  assert.ok(plan.chapters[0].filterComplex.includes('deshake'));
+  assert.match(plan.chapters[0].filterComplex, /trim=start=0\.05:end=0\.15.*atempo=1/);
+  assert.match(plan.chapters[0].filterComplex, /trim=start=0\.15:end=0\.4.*atempo=2/);
+  assert.ok(plan.chapters[0].filterComplex.includes('vidstabtransform'));
+  assert.ok(plan.chapters[0].stabilizationPasses[0].args.some((value) => String(value).includes('vidstabdetect')));
+  assert.ok(plan.chapters[0].stabilizationPasses[0].args.some((value) => String(value).includes('trim=start=0.05:end=0.15')));
   assert.ok(plan.chapters[0].filterComplex.includes('crop='));
-  assert.ok(plan.chapters[0].filterComplex.includes('afade='));
+  assert.ok(plan.final.filterComplex.includes('afade='));
   assert.ok(plan.final.filterComplex.includes('acrossfade='));
   assert.equal(plan.authority.music, await sha256File(input.music));
+  const fallbackPlan = await compileFinalRenderPlan({ ...input, capabilities: { filters: { vidstabdetect: false, vidstabtransform: false } } });
+  assert.ok(fallbackPlan.chapters[0].filterComplex.includes('deshake'));
   const result = await executeFinalRenderPlan(plan);
   assert.ok(result.closedFileProbe.avDurationDeltaSeconds <= 1 / (30000 / 1001));
+});
+
+test('source-audio bridge types create real overlap when adjacent items share a chapter', async () => {
+  const input = await fixture();
+  input.timeline.music = { mode: 'none' };
+  const secondVideo = join(input.input, 'second-original.mp4');
+  await runFfmpeg(['-f', 'lavfi', '-i', 'color=c=red:s=320x180:r=30000/1001:d=0.4', '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=48000:duration=0.4', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', secondVideo]);
+  const secondDigest = await sha256File(secondVideo);
+  input.sourceRegistry.entries.push({ mediaId: 'media-video-002', sourcePath: secondVideo, sourceDigest: secondDigest });
+  input.probe.media.push({ mediaId: 'media-video-002', mediaType: 'video', sourceDigest: secondDigest, streams: [{ type: 'video', width: 320, height: 180, frameRate: '30000/1001' }, { type: 'audio' }] });
+  input.probe.integrity.digest = computeArtifactDigest(input.probe);
+  Object.assign(input.timeline.items[1], {
+    sourceMediaId: 'media-video-002', sourceKind: 'video', sourceReference: { kind: 'original', path: 'media/originals/second.mp4', digest: secondDigest },
+    playbackRateCurve: [{ sourceTimeSeconds: 0, rate: 1 }, { sourceTimeSeconds: .2, rate: 1 }], transform: { stabilization: { mode: 'off', cropFraction: 0 } },
+  });
+  input.sceneSchema.scenes = [{ sceneId: 'scene-whole', role: 'journey', colorTokens: [], shotIds: [], interval: { entry: [0, .05], hold: [.05, .35], exit: [.35, .4] }, readableLayers: [] }];
+  input.sceneSchema.integrity.digest = computeArtifactDigest(input.sceneSchema);
+  input.motionMap.sceneSchemaDigest = input.sceneSchema.integrity.digest;
+  input.motionMap.owners = [];
+  input.motionMap.integrity.digest = computeArtifactDigest(input.motionMap);
+  input.timeline.sourceProbeDigest = input.probe.integrity.digest;
+  input.timeline.motionMapDigest = input.motionMap.integrity.digest;
+  input.timeline.integrity.digest = computeArtifactDigest(input.timeline);
+  const plan = await compileFinalRenderPlan(input);
+  assert.ok(plan.chapters[0].filterComplex.includes('adelay=200|200'));
+  assert.ok(plan.chapters[0].filterComplex.includes('atrim=start=0.2:end=0.3'));
+  assert.ok(plan.chapters[0].filterComplex.includes('amix=inputs=3'));
+  const rendered = await executeFinalRenderPlan(plan);
+  const pcm = join(input.project, 'bridge.s16le');
+  await runFfmpeg(['-i', join(input.project, rendered.artifact), '-vn', '-ac', '1', '-ar', '48000', '-f', 's16le', pcm]);
+  const bytes = await readFile(pcm);
+  const powers = [0.12, 0.22, 0.34].map((time) => {
+    const window = bytes.subarray(Math.round(time * 48000) * 2, Math.round((time + 0.04) * 48000) * 2);
+    return { first: spectralPower(window, 660), second: spectralPower(window, 880) };
+  });
+  assert.ok(powers[0].first > powers[0].second * 2, `incoming source does not lead its picture cut: ${JSON.stringify(powers)}`);
+  assert.ok(powers[1].first > 0 && powers[1].second > 0, 'source handle overlaps the aligned incoming source');
+  assert.ok(powers[2].second > powers[2].first * 2, 'incoming source remains aligned after the bridge');
 });
 
 test('chapter cache is atomic and digest-bound, and final execution rejects source TOCTOU', async () => {
@@ -242,6 +309,34 @@ test('chapter cache is atomic and digest-bound, and final execution rejects sour
   const stalePlan = await compileFinalRenderPlan(changed);
   await writeFile(changed.video, 'changed');
   await assert.rejects(() => executeFinalRenderPlan(stalePlan), (error) => error.code === 'E_SOURCE_CHANGED');
+});
+
+test('chapter splits clip variable-speed source time instead of replaying the curve', async () => {
+  const input = await fixture();
+  input.timeline.music = { mode: 'none' };
+  input.sceneSchema.scenes = [
+    { sceneId: 'scene-a', role: 'journey', colorTokens: [], shotIds: [], interval: { entry: [0, .05], hold: [.05, .1], exit: [.1, .15] }, readableLayers: [] },
+    { sceneId: 'scene-b', role: 'journey', colorTokens: [], shotIds: [], interval: { entry: [.15, .18], hold: [.18, .22], exit: [.22, .25] }, readableLayers: [] },
+  ];
+  input.sceneSchema.integrity.digest = computeArtifactDigest(input.sceneSchema);
+  input.motionMap.sceneSchemaDigest = input.sceneSchema.integrity.digest;
+  input.motionMap.owners = [];
+  input.motionMap.integrity.digest = computeArtifactDigest(input.motionMap);
+  input.timeline.items = [input.timeline.items[0]];
+  Object.assign(input.timeline.items[0], { sourceOutSeconds: .4, destinationOutSeconds: .25, playbackRateCurve: [{ sourceTimeSeconds: 0, rate: 1 }, { sourceTimeSeconds: .1, rate: 2 }, { sourceTimeSeconds: .4, rate: 2 }] });
+  input.timeline.motionMapDigest = input.motionMap.integrity.digest;
+  input.timeline.integrity.digest = computeArtifactDigest(input.timeline);
+  const plan = await compileFinalRenderPlan(input);
+  assert.match(plan.chapters[0].filterComplex, /trim=start=0:end=0\.1/);
+  assert.match(plan.chapters[1].filterComplex, /trim=start=0\.2:end=0\.4/);
+  assert.equal(plan.chapters[1].filterComplex.includes('trim=start=0:end=0.1'), false);
+});
+
+test('approved local music is rehashed before any render work', async () => {
+  const input = await fixture();
+  const plan = await compileFinalRenderPlan(input);
+  await writeFile(input.music, 'changed after planning');
+  await assert.rejects(() => executeFinalRenderPlan(plan), (error) => error.code === 'E_MUSIC_CHANGED');
 });
 
 test('FINAL_RENDER commit binds closed provenance and cannot claim QA or delivery', async () => {
@@ -312,4 +407,12 @@ test('cancellation kills active children and removes incomplete outputs', async 
   await session.cancel();
   assert.equal(child.killed, true);
   await assert.rejects(() => stat(partial), (error) => error.code === 'ENOENT');
+});
+
+test('cancellation escalates an uncooperative child to SIGKILL', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: 12345, exitCode: null, signalCode: null, kill(signal) { this.signalCode = signal; return true; } });
+  const session = createRenderSession({ killAfterMs: 5, forceKill(target) { target.signalCode = 'SIGKILL'; target.emit('close', null, 'SIGKILL'); } });
+  session.track(child);
+  await session.cancel();
+  assert.equal(child.signalCode, 'SIGKILL');
 });

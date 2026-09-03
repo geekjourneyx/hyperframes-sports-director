@@ -80,6 +80,11 @@ export async function recoverFinalRenderTransaction(project, mutationGuard, depe
   if (!journal) return;
   const paths = validateJournalPaths(journal);
   await validateJournal(journal);
+  const currentState = await (dependencies.loadCurrentState ?? (() => current(project, 'PROJECT_STATE.json', 'project-state')))();
+  const currentDigest = currentState?.integrity?.digest;
+  if (![journal.previousState.integrity.digest, journal.nextState.integrity.digest].includes(currentDigest)) {
+    fail('E_FINAL_TRANSACTION_CONFLICT', 'current project state is newer than the prepared final-render transaction');
+  }
   await writeJsonAtomic(projectPath(project, 'PROJECT_STATE.json'), journal.previousState);
   await Promise.all([paths.final, paths.finalProvenance, paths.candidate, paths.pendingProvenance]
     .map((path) => unlink(projectPath(project, path)).catch(() => {})));
