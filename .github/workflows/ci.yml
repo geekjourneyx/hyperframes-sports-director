@@ -21,6 +21,12 @@ jobs:
         with:
           node-version: 22.12.0
           cache: npm
+      - name: Install ffmpeg on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg on macOS
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
       - run: npm ci
       - run: npm run test:contracts
       - run: npm run test:skill
