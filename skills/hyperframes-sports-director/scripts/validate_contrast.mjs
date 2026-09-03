@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
 import { errorResult } from './lib/cli.mjs';
 import { requiredReadableTimes } from './lib/layout.mjs';

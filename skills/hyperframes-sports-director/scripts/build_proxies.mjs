@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { dirname, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';

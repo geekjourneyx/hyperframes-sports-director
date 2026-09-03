@@ -1,0 +1,6 @@
+interface:
+  display_name: "HyperFrames Sports Director"
+  short_description: "Direct evidence-backed immersive sports Vlogs"
+  default_prompt: "Use $hyperframes-sports-director to turn my local sports-media directory into a reviewed 16:9 Vlog."
+policy:
+  allow_implicit_invocation: true

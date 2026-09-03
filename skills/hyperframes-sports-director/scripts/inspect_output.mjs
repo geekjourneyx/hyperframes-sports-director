@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createHash, randomBytes } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';

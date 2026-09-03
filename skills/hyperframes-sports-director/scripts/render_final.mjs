@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { readFile, rename, unlink } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 

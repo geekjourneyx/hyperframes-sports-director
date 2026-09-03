@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
 
 import { errorResult, parseCliArguments } from './lib/cli.mjs';
