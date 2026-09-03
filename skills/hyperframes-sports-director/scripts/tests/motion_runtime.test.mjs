@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { compilePausedTimelines } from '../lib/motion.mjs';
+import { computeArtifactDigest, loadSchema, validateDocument } from '../lib/contracts.mjs';
 import { installSceneRuntime } from '../../assets/hyperframes-project/src/scene-runtime.js';
 
 const digest = (character) => character.repeat(64);
@@ -112,6 +113,46 @@ test('production compiler retains declared background, glyph, shape, and alpha-m
   assert.equal(scene.layers.find(({ layerId }) => layerId === 'layer-route').staticFallback.kind, 'asset-alpha-mask');
   assert.equal(scene.layers.find(({ layerId }) => layerId === 'layer-route').source.path, 'assets/components/route-mask.svg');
   assert.equal(scene.layers.find(({ layerId }) => layerId === 'layer-transition').staticFallback.path, 'M0 0 L480 0 L240 160 Z');
+});
+
+test('closed production schemas admit every declaration consumed by the runtime compiler', async () => {
+  const input = productionInput();
+  const asset = input.assetManifest.assets[0];
+  const manifest = {
+    $schema: 'https://hyperframes.local/schemas/asset-manifest.schema.json', schemaVersion: '1.0.0', revision: 1,
+    assetRevision: input.assetManifest.assetRevision, status: 'frozen', designRevision: input.assetManifest.designRevision, lookRevision: input.assetManifest.lookRevision,
+    designSystemDigest: digest('a'), lookProfileDigest: digest('b'), assetPlanDigest: digest('7'), selectedAssetPlanDigest: digest('7'),
+    acceptance: {
+      anchorDigest: digest('1'), representativeDigest: digest('2'),
+      anchorIdentity: { assetId: 'asset-anchor', sourceDigest: digest('8'), narrativeRole: 'journey_anchor', semanticColorTokens: ['color.route'], visualAcceptanceDigest: digest('9') },
+      representativeIdentity: { proofId: 'proof-route', proofDigest: digest('2'), semanticAcceptanceDigest: digest('0'), footageEvidenceId: 'frame-climb-01', components: [{ assetId: 'asset-route', sourceDigest: digest('6'), cropReceiptDigest: null }] },
+      batches: [{ revision: 1, digest: digest('3'), acceptedAt: '2026-09-01T00:00:00.000Z' }],
+    },
+    assets: [{
+      ...asset, assetId: asset.id, planItem: null, planType: 'component', selectedRole: 'route-overlay',
+      provenance: { kind: 'generated-interpretive', sourceDigest: digest('6'), producer: 'runtime-contract-test', generatedAt: '2026-09-01T00:00:00.000Z' },
+      documentaryStatus: 'interpretive', semanticColorTokens: ['color.route'], crop: null,
+      expectedDisplayRect: { x: 0, y: 0, width: 640, height: 120, canvasWidth: 1920, canvasHeight: 1080 },
+      styleAnchorId: 'asset-anchor', proofs: {}, allowedUses: ['overlay'], combinationTests: [], visualAcceptance: null, optional: false,
+    }],
+    integrity: { digest: null, upstream: { assetPlan: digest('7'), designSystem: digest('a'), lookProfile: digest('b') } },
+  };
+  delete manifest.assets[0].colorToken;
+  manifest.integrity.digest = computeArtifactDigest(manifest);
+  const scene = {
+    ...input.sceneSchema, $schema: 'https://hyperframes.local/schemas/scene-schema.schema.json', schemaVersion: '1.0.0', revision: 1,
+    integrity: { digest: null, upstream: {} },
+  };
+  const motion = {
+    ...input.motionMap, $schema: 'https://hyperframes.local/schemas/motion-map.schema.json', schemaVersion: '1.0.0', revision: 1,
+    integrity: { digest: null, upstream: {} },
+  };
+  for (const [name, document] of [['asset-manifest', manifest], ['scene-schema', scene], ['motion-map', motion]]) {
+    const result = validateDocument(await loadSchema(name), document);
+    assert.equal(result.valid, true, `${name}: ${JSON.stringify(result.errors)}`);
+  }
+  const runtime = installSceneRuntime({}, compilePausedTimelines(input));
+  assert.equal(runtime.__renderAt(2, 'composite').background.staticFallback.kind, 'source-frame');
 });
 
 test('production-compiled runtime reuses source background and exact coverage at one absolute time', () => {
