@@ -39,9 +39,9 @@ test('v1 release gate validates metadata and builds one clean Skill archive', as
   assert.match(workflow, /contents:\s*write/);
   assert.match(workflow, /npm run release:package -- --tag "\$GITHUB_REF_NAME"/);
 
-  const result = await checkRelease(repoRoot, { version: '1.0.0' });
+  const result = await checkRelease(repoRoot, { version: '1.0.1' });
   assert.deepEqual(result.errors, []);
-  assert.equal(result.version, '1.0.0');
+  assert.equal(result.version, '1.0.1');
   assert.deepEqual(result.goldenScores, {
     cycling: 100,
     hiking: 100,
@@ -55,10 +55,10 @@ test('v1 release gate validates metadata and builds one clean Skill archive', as
   const output = await mkdtemp(join(tmpdir(), 'hf-release-a-'));
   const secondOutput = await mkdtemp(join(tmpdir(), 'hf-release-b-'));
   try {
-    const archive = await createReleaseArchive(repoRoot, { version: '1.0.0', output });
-    const secondArchive = await createReleaseArchive(repoRoot, { version: '1.0.0', output: secondOutput });
-    assert.equal(basename(archive.path), 'hyperframes-sports-director-v1.0.0.skill');
-    assert.match(await readFile(archive.checksumPath, 'utf8'), /^[a-f0-9]{64}  hyperframes-sports-director-v1\.0\.0\.skill\n$/);
+    const archive = await createReleaseArchive(repoRoot, { version: '1.0.1', output });
+    const secondArchive = await createReleaseArchive(repoRoot, { version: '1.0.1', output: secondOutput });
+    assert.equal(basename(archive.path), 'hyperframes-sports-director-v1.0.1.skill');
+    assert.match(await readFile(archive.checksumPath, 'utf8'), /^[a-f0-9]{64}  hyperframes-sports-director-v1\.0\.1\.skill\n$/);
     assert.equal(archive.digest, secondArchive.digest);
     assert.deepEqual(await readFile(archive.path), await readFile(secondArchive.path));
     assert.equal(await readFile(archive.checksumPath, 'utf8'), await readFile(secondArchive.checksumPath, 'utf8'));
@@ -93,7 +93,7 @@ test('release gate fails closed for unsafe files, corrupt assets, lineage drift,
           return !['.git', 'dist', 'node_modules'].includes(local.split('/')[0]);
         },
       });
-      const options = await mutate(fixture) ?? { version: '1.0.0' };
+      const options = await mutate(fixture) ?? { version: '1.0.1' };
       const result = await checkRelease(fixture, options);
       assert.equal(result.ok, false);
       assert.match(result.errors.join('\n'), expected);
@@ -128,7 +128,7 @@ test('release gate fails closed for unsafe files, corrupt assets, lineage drift,
       const manifest = JSON.parse(await readFile(path, 'utf8'));
       manifest.version = '2.0.0';
       await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`);
-    }, /package version must be 1\.0\.0/);
+    }, /package version must be 1\.0\.1/);
 
     await rejectMutation('attribution drift', async (fixture) => {
       const path = join(fixture, 'ATTRIBUTIONS.md');
@@ -140,7 +140,7 @@ test('release gate fails closed for unsafe files, corrupt assets, lineage drift,
       await symlink('SKILL.md', join(fixture, 'skills/hyperframes-sports-director/linked.md'));
     }, /symbolic link is not portable/);
 
-    await rejectMutation('tag and package version mismatch', async () => ({ version: '1.0.0', tag: 'v2.0.0' }), /release tag must equal v1\.0\.0/);
+    await rejectMutation('tag and package version mismatch', async () => ({ version: '1.0.1', tag: 'v2.0.0' }), /release tag must equal v1\.0\.1/);
 
     for (const reference of ['main', 'v7.0.1', '1234567']) {
       await rejectMutation(`non-immutable GitHub Action reference @${reference}`, async (fixture) => {

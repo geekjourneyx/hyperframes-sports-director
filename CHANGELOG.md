@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.1] - 2026-09-03
+
+### Fixed
+
+- Fixed tag-driven GitHub Release asset naming by deriving paths directly from
+  the validated tag instead of a fragile shell-generated workflow output.
+
 ## [1.0.0] - 2026-09-03
 
 ### Added

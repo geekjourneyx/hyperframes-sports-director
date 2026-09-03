@@ -39,14 +39,14 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
   -u http_proxy -u https_proxy -u all_proxy -u no_proxy npm run check
 env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
-  -u http_proxy -u https_proxy -u all_proxy -u no_proxy npm run release:package -- --tag v1.0.0
+  -u http_proxy -u https_proxy -u all_proxy -u no_proxy npm run release:package -- --tag v1.0.1
 git status --short
 ```
 
 `npm run release:package` creates:
 
-- `dist/hyperframes-sports-director-v1.0.0.skill`
-- `dist/hyperframes-sports-director-v1.0.0.skill.sha256`
+- `dist/hyperframes-sports-director-v1.0.1.skill`
+- `dist/hyperframes-sports-director-v1.0.1.skill.sha256`
 
 The `.skill` file is a deterministic ZIP archive containing one
 `hyperframes-sports-director/` root. It excludes the evaluation workspace,
@@ -55,8 +55,8 @@ source footage, activity files, proxies, renders, secrets, and generated media.
 ## Inspect the dry run
 
 ```bash
-(cd dist && sha256sum -c hyperframes-sports-director-v1.0.0.skill.sha256)
-unzip -Z1 dist/hyperframes-sports-director-v1.0.0.skill
+(cd dist && sha256sum -c hyperframes-sports-director-v1.0.1.skill.sha256)
+unzip -Z1 dist/hyperframes-sports-director-v1.0.1.skill
 ```
 
 Unpack into a temporary directory and run Skill Creator validation against the
@@ -64,13 +64,13 @@ single extracted Skill root before approving a tag:
 
 ```bash
 hf_release_tmp="$(mktemp -d)"
-unzip -q dist/hyperframes-sports-director-v1.0.0.skill -d "$hf_release_tmp"
+unzip -q dist/hyperframes-sports-director-v1.0.1.skill -d "$hf_release_tmp"
 python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py" \
   "$hf_release_tmp/hyperframes-sports-director"
 ```
 
 Inspect the archive listing and checksum, then obtain explicit confirmation for
-the exact `v1.0.0` tag. `npm run release:dry` remains a compatibility alias for
+the exact `v1.0.1` tag. `npm run release:dry` remains a compatibility alias for
 local packaging; CI and release automation use the explicit
 `release:package` name.
 
@@ -83,15 +83,15 @@ the current remote `main` and that the version tag is still unused:
 ```bash
 git fetch origin main --tags
 test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-test -z "$(git tag --list v1.0.0)"
-test -z "$(git ls-remote --tags origin refs/tags/v1.0.0)"
+test -z "$(git tag --list v1.0.1)"
+test -z "$(git ls-remote --tags origin refs/tags/v1.0.1)"
 ```
 
 Create and push one annotated tag:
 
 ```bash
-git tag -a v1.0.0 -m "Release v1.0.0"
-git push origin v1.0.0
+git tag -a v1.0.1 -m "Release v1.0.1"
+git push origin v1.0.1
 ```
 
 The `Release` workflow validates the exact tag and current-main commit, reruns
@@ -101,11 +101,11 @@ Release. It also keeps the same files as a workflow artifact for CI diagnostics.
 ## Verify publication
 
 ```bash
-gh run list --workflow Release --commit "$(git rev-list -n 1 v1.0.0)"
-gh release view v1.0.0 --json url,tagName,isDraft,isPrerelease,assets
+gh run list --workflow Release --commit "$(git rev-list -n 1 v1.0.1)"
+gh release view v1.0.1 --json url,tagName,isDraft,isPrerelease,assets
 ```
 
 Release is complete only when the workflow is green and the GitHub Release is
 public, not a draft, and contains both expected assets. If the workflow itself
 can be retried without changing content, rerun the same workflow. If tagged
-content needs a change, keep `v1.0.0` immutable and release a new patch version.
+content needs a change, keep `v1.0.1` immutable and release a new patch version.

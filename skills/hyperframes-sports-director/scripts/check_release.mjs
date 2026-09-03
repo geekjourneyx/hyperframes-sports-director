@@ -209,7 +209,7 @@ async function repositorySafetyErrors(repoRoot) {
   return errors;
 }
 
-export async function checkRelease(repoRootInput, { version = '1.0.0', tag = null } = {}) {
+export async function checkRelease(repoRootInput, { version = '1.0.1', tag = null } = {}) {
   const repoRoot = resolve(repoRootInput);
   const skillRoot = join(repoRoot, 'skills', SKILL_NAME);
   const errors = [];
@@ -251,7 +251,7 @@ export async function checkRelease(repoRootInput, { version = '1.0.0', tag = nul
   if (!workflowActionsArePinned(ci)) errors.push('CI workflow actions must be pinned to immutable 40-character commit SHAs');
   const release = releaseBytes?.toString('utf8') ?? '';
   if (!/tags:\s*\n\s*-\s*["']v\*["']/.test(release)) errors.push('release workflow must use the v* tag pattern');
-  if (!release.includes('needs: verify') || !release.includes('steps.version.outputs.version')) errors.push('release publication must wait for verification and derive its filename from package metadata');
+  if (!release.includes('needs: verify') || !release.includes('github.ref_name')) errors.push('release publication must wait for verification and derive its filename from the validated tag');
   if (!release.includes('GITHUB_REF_NAME') || !release.includes('--tag')) errors.push('release workflow must reject a tag that differs from package metadata');
   if (!release.includes('git rev-parse origin/main') || !release.includes('git/ref/heads/main') || !release.includes('GITHUB_SHA')) errors.push('release workflow must require the tag commit to equal remote main before verification and publication');
   if (!release.includes('contents: write') || !release.includes('gh release create')) errors.push('release workflow must publish a GitHub Release');
@@ -325,7 +325,7 @@ export async function checkRelease(repoRootInput, { version = '1.0.0', tag = nul
   };
 }
 
-export async function createReleaseArchive(repoRootInput, { version = '1.0.0', tag = null, output = join(resolve(repoRootInput), 'dist') } = {}) {
+export async function createReleaseArchive(repoRootInput, { version = '1.0.1', tag = null, output = join(resolve(repoRootInput), 'dist') } = {}) {
   const repoRoot = resolve(repoRootInput);
   const result = await checkRelease(repoRoot, { version, tag });
   if (!result.ok) throw new Error(`release check failed:\n${result.errors.join('\n')}`);
