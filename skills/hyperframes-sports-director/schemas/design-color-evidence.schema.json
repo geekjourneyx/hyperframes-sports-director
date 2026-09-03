@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/design-color-evidence.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "producerCommand", "renderedArtifact", "renderedTokenSamples", "colorVisionProofs", "integrity"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/design-color-evidence.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "producerCommand": { "const": "render_motion_proofs.mjs" },
+    "renderedArtifact": { "$ref": "#/$defs/renderedArtifact" },
+    "renderedTokenSamples": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/tokenSample" } },
+    "colorVisionProofs": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/colorVisionProof" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "renderedArtifact": { "type": "object", "required": ["path", "digest"], "additionalProperties": false, "properties": { "path": { "type": "string", "pattern": "^review/[a-zA-Z0-9._/-]+$" }, "digest": { "$ref": "#/$defs/digest" } } },
+    "tokenSample": { "type": "object", "required": ["token", "time", "deltaE2000", "alpha"], "additionalProperties": false, "properties": { "token": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" }, "time": { "type": "number", "minimum": 0 }, "deltaE2000": { "type": "number", "minimum": 0 }, "alpha": { "type": "number", "minimum": 0, "maximum": 1 }, "backgroundPass": { "type": "boolean" }, "highCoverageMatte": { "type": "boolean" } } },
+    "colorVisionProof": { "type": "object", "required": ["simulation", "semantic", "contrastRatio", "encodings"], "additionalProperties": false, "properties": { "simulation": { "enum": ["protanopia", "deuteranopia"] }, "semantic": { "type": "string", "minLength": 1 }, "contrastRatio": { "type": "number", "minimum": 1 }, "encodings": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["label", "boundary", "symbol", "pattern"] } } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "$ref": "#/$defs/digest" }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

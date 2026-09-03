@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { validateDataOverlayAuthority } from './activity.mjs';
+import { formatDataOverlayWording, validateDataOverlayAuthority } from './activity.mjs';
 import { validateSceneLayout } from './layout.mjs';
 
 const RELATIONSHIPS = new Set(['spatial-continuation', 'motion-match', 'shape-mask-carry', 'environmental-texture-bridge', 'data-to-footage-bridge']);
@@ -30,9 +30,11 @@ export function resolveDataOverlayDisplay(dataOverlays, normalizedFacts) {
   return (dataOverlays?.overlays ?? []).map((overlay) => {
     const fact = normalizedFacts?.[overlay.metricId] ?? normalizedFacts?.[overlay.metricId.replace(/^metrics\./, '')];
     if (!fact || !Object.hasOwn(fact, 'value')) { const cause = new Error(`normalized fact is unavailable: ${overlay.metricId}`); cause.code = 'E_OVERLAY_FACT_AUTHORITY'; throw cause; }
+    const wording = formatDataOverlayWording(overlay.metricId, fact);
+    if (overlay.wording !== wording) { const cause = new Error(`overlay wording does not match its authorized fact: ${overlay.metricId}`); cause.code = 'E_OVERLAY_WORDING'; throw cause; }
     return {
       overlayId: overlay.overlayId, metricId: overlay.metricId, value: fact.value, unit: fact.unit ?? null,
-      wording: overlay.wording, displayAuthority: overlay.displayAuthority, syncAuthority: overlay.syncAuthority,
+      wording, displayAuthority: overlay.displayAuthority, syncAuthority: overlay.syncAuthority,
       colorToken: overlay.colorToken, interval: [overlay.destinationInSeconds, overlay.destinationOutSeconds],
     };
   });
@@ -94,7 +96,9 @@ export function validateMotionContract({ designSystem, lookProfile, assetManifes
   for (const [index, overlay] of (dataOverlays?.overlays ?? []).entries()) {
     const path = `/dataOverlays/overlays/${index}`;
     const factKey = overlay.metricId?.replace(/^metrics\./, '');
+    const fact = facts[overlay.metricId] ?? facts[factKey];
     if (!Object.hasOwn(facts, overlay.metricId) && !Object.hasOwn(facts, factKey)) hardErrors.push(hard('E_OVERLAY_FACT_AUTHORITY', `${path}/metricId`, 'overlay must reference a normalized activity fact; runtime cannot calculate metrics', 'activity-truth'));
+    else if (overlay.wording !== formatDataOverlayWording(overlay.metricId, typeof fact === 'object' && fact !== null && Object.hasOwn(fact, 'value') ? fact : { value: fact })) hardErrors.push(hard('E_OVERLAY_WORDING', `${path}/wording`, 'overlay wording must be deterministically formatted from its current authorized fact', 'activity-truth'));
     if (!['local-observation', 'visible-with-caveat', 'chapter-summary', 'whole-activity'].includes(overlay.displayAuthority)
       || !['whole-activity', 'chapter', 'time-synchronized'].includes(overlay.syncAuthority)) hardErrors.push(hard('E_OVERLAY_DISPLAY_AUTHORITY', path, 'overlay lacks sufficient display or sync authority', 'activity-truth'));
   }

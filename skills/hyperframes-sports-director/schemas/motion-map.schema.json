@@ -19,7 +19,7 @@
   },
   "additionalProperties": false,
   "allOf": [{
-    "if": { "properties": { "status": { "const": "frozen" } } },
+    "if": { "properties": { "status": { "enum": ["available", "frozen"] } } },
     "then": {
       "properties": { "seed": true, "designSystemDigest": true, "assetManifestDigest": true, "sceneSchemaDigest": true },
       "required": ["seed", "designSystemDigest", "assetManifestDigest", "sceneSchemaDigest"]

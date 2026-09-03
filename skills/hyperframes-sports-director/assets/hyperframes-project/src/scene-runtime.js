@@ -1,3 +1,5 @@
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
 function activeAt(layer, time) {
   const intervals = Object.values(layer.timing ?? {});
   return intervals.some(([start, end]) => time >= start && time <= end);
@@ -25,10 +27,7 @@ function rectangleAt(track, time) {
 
 function fallbackRectangle(layer) {
   const offset = Number.isFinite(layer.deterministicOffset) ? layer.deterministicOffset : 0;
-  return {
-    x: 96 + Math.round(offset * 192), y: 96 + Math.round(offset * 108),
-    width: 480, height: 160,
-  };
+  return { x: 96 + Math.round(offset * 192), y: 96 + Math.round(offset * 108), width: 480, height: 160 };
 }
 
 function geometryAt(layer, time) {
@@ -46,33 +45,111 @@ function proofKind(mode) {
   return null;
 }
 
-function appendBackgroundPlane(target, stage) {
-  const background = target.document.createElement('div');
-  background.dataset.hfKind = 'background';
-  background.dataset.hfColorToken = 'color.background';
-  background.style.setProperty('left', '0');
-  background.style.setProperty('top', '0');
-  background.style.setProperty('width', '100%');
-  background.style.setProperty('height', '100%');
-  background.style.setProperty('background-color', 'var(--color-background)');
-  stage.append(background);
+function createSvgElement(document, name) {
+  return document.createElementNS?.(SVG_NAMESPACE, name) ?? document.createElement(name);
+}
+
+function setAttributes(element, attributes) {
+  for (const [name, value] of Object.entries(attributes)) if (value !== undefined && value !== null) element.setAttribute(name, String(value));
+  return element;
+}
+
+function fallbackDescription(layer, geometry) {
+  if (layer.staticFallback && typeof layer.staticFallback === 'object') return layer.staticFallback;
+  if (layer.typographyRole) return { kind: 'text', text: layer.text ?? layer.typographyRole, viewBox: `0 0 ${geometry.width} ${geometry.height}` };
+  return {
+    kind: 'shape', viewBox: `0 0 ${geometry.width} ${geometry.height}`,
+    path: `M0 ${geometry.height} L${geometry.width * 0.28} ${geometry.height * 0.2} L${geometry.width * 0.62} ${geometry.height * 0.8} L${geometry.width} 0 L${geometry.width} ${geometry.height} Z`,
+  };
+}
+
+function coverageFor(layer, geometry) {
+  const fallback = fallbackDescription(layer, geometry);
+  return {
+    kind: fallback.kind, nonEmpty: true, source: 'static-fallback',
+    geometry: structuredClone(geometry), path: fallback.path ?? null,
+  };
+}
+
+function appendShape(document, svg, shape, defaultToken, fill) {
+  const type = ['path', 'rect', 'circle'].includes(shape.type) ? shape.type : 'path';
+  const element = createSvgElement(document, type);
+  const token = shape.colorToken ?? defaultToken;
+  const attributes = type === 'path'
+    ? { d: shape.d ?? shape.path, fill }
+    : type === 'rect'
+      ? { x: shape.x ?? 0, y: shape.y ?? 0, width: shape.width, height: shape.height, fill }
+      : { cx: shape.cx, cy: shape.cy, r: shape.r, fill };
+  setAttributes(element, attributes);
+  if (Number.isFinite(shape.opacity)) setAttributes(element, { 'fill-opacity': shape.opacity });
+  if (!fill) setAttributes(element, { fill: `var(${cssVariableForToken(token)})` });
+  svg.append(element);
+}
+
+function appendFallbackSvg(document, container, fallback, geometry, colorToken, fill) {
+  const svg = setAttributes(createSvgElement(document, 'svg'), {
+    width: '100%', height: '100%', viewBox: fallback.viewBox ?? `0 0 ${geometry.width} ${geometry.height}`,
+    preserveAspectRatio: 'none', 'data-hf-static-fallback': fallback.kind ?? 'shape',
+  });
+  if (fallback.kind === 'text') {
+    const text = setAttributes(createSvgElement(document, 'text'), { x: 0, y: geometry.height * 0.75, fill });
+    text.textContent = fallback.text ?? colorToken;
+    svg.append(text);
+  } else if (Array.isArray(fallback.shapes)) {
+    for (const shape of fallback.shapes) appendShape(document, svg, shape, colorToken, fill);
+  } else {
+    appendShape(document, svg, { type: 'path', path: fallback.path }, colorToken, fill);
+  }
+  container.append(svg);
+}
+
+function activeBackground(compiled, activeLayers, time) {
+  const activeSceneIds = new Set(activeLayers.map(({ sceneId }) => sceneId));
+  const scene = compiled.scenes.find(({ sceneId }) => activeSceneIds.has(sceneId));
+  const background = scene?.background ?? {};
+  const assetLayer = activeLayers.find(({ assetId }) => assetId) ?? activeLayers[0];
+  const staticFallback = background.staticFallback ?? {
+    kind: 'svg', viewBox: '0 0 1920 1080', shapes: [{
+      type: 'path', d: 'M0 810 L540 540 L1080 750 L1620 420 L1920 570 L1920 1080 L0 1080 Z',
+      colorToken: assetLayer?.colorToken ?? 'color.background', opacity: 0.18,
+    }],
+  };
+  return {
+    backgroundId: background.backgroundId ?? scene?.sceneId ?? 'semantic-background',
+    assetId: background.assetId ?? null, time, colorToken: background.colorToken ?? 'color.background',
+    staticFallback: structuredClone(staticFallback),
+  };
+}
+
+function appendBackgroundPlane(target, stage, background, mode) {
+  const plane = target.document.createElement('div');
+  const matte = proofKind(mode);
+  plane.dataset.hfKind = 'background';
+  plane.dataset.hfColorToken = background.colorToken;
+  plane.style.setProperty('left', '0');
+  plane.style.setProperty('top', '0');
+  plane.style.setProperty('width', '100%');
+  plane.style.setProperty('height', '100%');
+  plane.style.setProperty('background-color', matte ? 'var(--hf-matte-background)' : `var(${cssVariableForToken(background.colorToken)})`);
+  if (!matte) appendFallbackSvg(target.document, plane, background.staticFallback, { x: 0, y: 0, width: 1920, height: 1080 }, background.colorToken);
+  stage.append(plane);
 }
 
 function appendLayerPlane(target, stage, layer, mode) {
   const element = target.document.createElement('div');
-  const { geometry, paint } = layer;
   const matte = proofKind(mode);
   element.dataset.hfLayer = layer.layerId;
   element.dataset.hfOwner = layer.ownerId;
   element.dataset.hfPrimitive = layer.primitive;
   element.dataset.hfColorToken = layer.colorToken;
-  element.dataset.hfStaticFallback = layer.staticFallback;
+  element.dataset.hfStaticFallback = typeof layer.staticFallback === 'string' ? layer.staticFallback : layer.staticFallback.kind;
   if (matte) element.dataset.hfMatte = matte;
-  element.style.setProperty('left', `${geometry.x}px`);
-  element.style.setProperty('top', `${geometry.y}px`);
-  element.style.setProperty('width', `${geometry.width}px`);
-  element.style.setProperty('height', `${geometry.height}px`);
-  element.style.setProperty('background-color', `var(${paint.cssVariable})`);
+  element.style.setProperty('left', `${layer.geometry.x}px`);
+  element.style.setProperty('top', `${layer.geometry.y}px`);
+  element.style.setProperty('width', `${layer.geometry.width}px`);
+  element.style.setProperty('height', `${layer.geometry.height}px`);
+  appendFallbackSvg(target.document, element, fallbackDescription(layer, layer.geometry), layer.geometry, layer.colorToken,
+    matte ? 'var(--hf-matte-coverage)' : `var(${layer.paint.cssVariable})`);
   stage.append(element);
 }
 
@@ -87,21 +164,28 @@ export function installSceneRuntime(target, compiled) {
   target.__renderAt = (time, mode = 'composite') => {
     if (!Number.isFinite(time) || time < 0) throw new TypeError('render time must be a non-negative absolute time');
     const active = compiled.scenes.flatMap(({ layers }) => layers).filter((layer) => activeAt(layer, time));
-    const layers = renderModeLayers(active, mode).map((layer) => ({
-      layerId: layer.layerId, ownerId: layer.ownerId, primitive: layer.primitive, staticFallback: layer.staticFallback,
-      colorToken: layer.colorToken, deterministicOffset: layer.deterministicOffset, geometry: geometryAt(layer, time),
-      paint: { colorToken: layer.colorToken, cssVariable: cssVariableForToken(layer.colorToken) },
-    }));
-    for (const layer of layers) target.__layerEvidence[layer.layerId].geometry = structuredClone(layer.geometry);
+    const background = activeBackground(compiled, active, time);
+    const layers = renderModeLayers(active, mode).map((layer) => {
+      const geometry = geometryAt(layer, time);
+      return {
+        layerId: layer.layerId, ownerId: layer.ownerId, primitive: layer.primitive, staticFallback: layer.staticFallback,
+        colorToken: layer.colorToken, typographyRole: layer.typographyRole, deterministicOffset: layer.deterministicOffset, geometry,
+        coverage: coverageFor(layer, geometry), paint: { colorToken: layer.colorToken, cssVariable: cssVariableForToken(layer.colorToken) },
+      };
+    });
+    for (const layer of layers) {
+      target.__layerEvidence[layer.layerId].geometry = structuredClone(layer.geometry);
+      target.__layerEvidence[layer.layerId].coverage = structuredClone(layer.coverage);
+    }
     const stage = target.document?.getElementById?.('hyperframes-stage');
     if (stage) {
       stage.replaceChildren();
       stage.dataset.hfMode = mode;
       stage.dataset.hfTime = String(time);
-      appendBackgroundPlane(target, stage);
+      appendBackgroundPlane(target, stage, background, mode);
       for (const layer of layers) appendLayerPlane(target, stage, layer, mode);
     }
-    return { clock: 'paused-absolute-time', time, mode, layers };
+    return { clock: 'paused-absolute-time', time, mode, background, layers };
   };
   return target;
 }

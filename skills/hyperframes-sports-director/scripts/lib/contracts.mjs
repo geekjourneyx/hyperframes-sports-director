@@ -12,7 +12,7 @@ const SCHEMA_VERSION = '1.0.0';
 const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'schemas');
 const SCHEMA_NAMES = new Set([
   'activity', 'asset-manifest', 'beat-map', 'data-overlays', 'design-system',
-  'direction-proposals', 'director-approval', 'edit-brief', 'look-profile',
+  'design-color-evidence', 'design-contrast-evidence', 'direction-proposals', 'director-approval', 'edit-brief', 'look-profile',
   'media-index', 'motion-map', 'probe', 'project', 'project-state',
   'review-metrics', 'scene-schema', 'segments', 'shot', 'sync-map',
   'timeline', 'transcript',

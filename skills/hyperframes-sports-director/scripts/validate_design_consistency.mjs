@@ -6,7 +6,7 @@ import { computeArtifactDigest, loadSchema, validateDocument, verifyArtifactInte
 import { buildPostLockWorkbench } from './lib/approval.mjs';
 import { loadEditorialEvidence } from './lib/editorial-evidence.mjs';
 import { acquireRepairGuard, releaseRepairGuard } from './lib/invalidation.mjs';
-import { projectPath, writeJsonAtomic } from './lib/media.mjs';
+import { projectPath, sha256File, writeJsonAtomic } from './lib/media.mjs';
 import { validateMotionContract } from './lib/motion.mjs';
 import { validateSceneLayout } from './lib/layout.mjs';
 import { commitMotionCompositionState } from './lib/project-state.mjs';
@@ -19,8 +19,27 @@ const REVIEW_CATEGORIES = ['visual-density', 'restraint', 'pacing', 'cross-scene
 const reviewFinding = (category) => ({ code: 'AGENT_REVIEW_REQUIRED', classification: 'agent_review_required', category, message: `${category} requires Agent review of decoded final-MP4 evidence` });
 const rasterError = (path) => ({ code: 'E_RASTER_BUDGET', classification: 'hard_error', category: 'raster-budget', path, message: 'asset effective pixels do not cover its approved maximum display rectangle' });
 
+function exactDigestMap(actual, expected) {
+  const keys = Object.keys(expected).sort();
+  return JSON.stringify(Object.keys(actual ?? {}).sort()) === JSON.stringify(keys) && keys.every((key) => actual[key] === expected[key]);
+}
+
+export function validateRenderedEvidenceAuthority({ colorEvidence, contrastEvidence, authorities, renderedBytes } = {}) {
+  const errors = [];
+  const pairs = [
+    ['color', colorEvidence, { designSystem: authorities?.designSystem, lookProfile: authorities?.lookProfile, motionMap: authorities?.motionMap, renderedBytes: renderedBytes?.color }],
+    ['contrast', contrastEvidence, { sceneSchema: authorities?.sceneSchema, motionMap: authorities?.motionMap, renderedBytes: renderedBytes?.contrast }],
+  ];
+  for (const [role, evidence, upstream] of pairs) {
+    if (evidence?.producerCommand !== 'render_motion_proofs.mjs') errors.push({ code: 'E_DESIGN_EVIDENCE_PRODUCER', role });
+    if (!verifyArtifactIntegrity(evidence).valid) errors.push({ code: 'E_DESIGN_EVIDENCE_INTEGRITY', role });
+    if (evidence?.renderedArtifact?.digest !== renderedBytes?.[role] || !exactDigestMap(evidence?.integrity?.upstream, upstream)) errors.push({ code: 'E_DESIGN_EVIDENCE_LINEAGE', role });
+  }
+  return { valid: errors.length === 0, errors };
+}
+
 export function validateDesignConsistency(input = {}) {
-  const results = [validateDesignSystem(input), validateMotionContract(input), validateSceneLayout(input), validateColorPipeline({ ...input, requireRenderedEvidence: true }), validateContrast({ layers: input.contrastLayers, requireRenderedEvidence: true })];
+  const results = [validateDesignSystem(input), validateMotionContract(input), validateSceneLayout(input), validateColorPipeline({ ...input, requireRenderedEvidence: true }), validateContrast({ layers: input.contrastLayers, sceneSchema: input.sceneSchema, motionMap: input.motionMap, requireRenderedEvidence: true })];
   const hardErrors = results.flatMap(({ hardErrors = [] }) => hardErrors);
   for (const [index, asset] of (input.assetManifest?.assets ?? []).entries()) {
     const display = asset.expectedDisplayRect; const effective = asset.nativeEffectivePixels;
@@ -50,13 +69,22 @@ export async function validateDesignConsistencyFile({ project }) {
   if (!projectContract.valid || !verifyArtifactIntegrity(projectDocument).valid) { const cause = new Error('PROJECT is not a current integrity-valid artifact'); cause.code = 'E_COMPOSITION_AUTHORITY'; cause.diagnostics = projectContract.errors; throw cause; }
   const sportProfile = JSON.parse(await readFile(new URL(`../profiles/sports/${projectDocument.profiles.sport}.json`, import.meta.url), 'utf8'));
   input.primaryMetricIds = sportProfile.policies.dataPolicy.primaryMetrics;
-  const [colorEvidence, contrastEvidence] = await Promise.all(['review/design-color-evidence.json', 'review/design-contrast-evidence.json']
-    .map((path) => readFile(projectPath(project, path), 'utf8').then(JSON.parse)));
-  if (!verifyArtifactIntegrity(colorEvidence).valid || !verifyArtifactIntegrity(contrastEvidence).valid) { const cause = new Error('rendered design evidence integrity is stale'); cause.code = 'E_DESIGN_EVIDENCE'; throw cause; }
-  const expectedColorUpstream = { designSystem: input.designSystem.integrity.digest, lookProfile: input.lookProfile.integrity.digest, motionMap: input.motionMap.integrity.digest };
-  const expectedContrastUpstream = { sceneSchema: input.sceneSchema.integrity.digest, motionMap: input.motionMap.integrity.digest };
-  if (JSON.stringify(colorEvidence.integrity.upstream) !== JSON.stringify(expectedColorUpstream)
-    || JSON.stringify(contrastEvidence.integrity.upstream) !== JSON.stringify(expectedContrastUpstream)) { const cause = new Error('rendered design evidence lineage is stale'); cause.code = 'E_DESIGN_EVIDENCE'; throw cause; }
+  const evidenceSpecs = [['review/design-color-evidence.json', 'design-color-evidence'], ['review/design-contrast-evidence.json', 'design-contrast-evidence']];
+  const [colorEvidence, contrastEvidence] = await Promise.all(evidenceSpecs.map(async ([path, schemaName]) => {
+    const evidence = JSON.parse(await readFile(projectPath(project, path), 'utf8'));
+    const contract = validateDocument(await loadSchema(schemaName), evidence);
+    if (!contract.valid) { const cause = new Error(`${path} violates ${schemaName}`); cause.code = 'E_DESIGN_EVIDENCE'; cause.diagnostics = contract.errors; throw cause; }
+    return evidence;
+  }));
+  const renderedBytes = {
+    color: await sha256File(projectPath(project, colorEvidence.renderedArtifact.path)),
+    contrast: await sha256File(projectPath(project, contrastEvidence.renderedArtifact.path)),
+  };
+  const evidenceAuthority = validateRenderedEvidenceAuthority({ colorEvidence, contrastEvidence, renderedBytes, authorities: {
+    designSystem: input.designSystem.integrity.digest, lookProfile: input.lookProfile.integrity.digest,
+    motionMap: input.motionMap.integrity.digest, sceneSchema: input.sceneSchema.integrity.digest,
+  } });
+  if (!evidenceAuthority.valid) { const cause = new Error('rendered design evidence authority is stale'); cause.code = 'E_DESIGN_EVIDENCE'; cause.diagnostics = evidenceAuthority.errors; throw cause; }
   input.renderedTokenSamples = colorEvidence.renderedTokenSamples;
   input.colorVisionProofs = colorEvidence.colorVisionProofs;
   input.contrastLayers = contrastEvidence.layers;
@@ -64,7 +92,7 @@ export async function validateDesignConsistencyFile({ project }) {
     new URL('../assets/hyperframes-project/src/main.js', import.meta.url),
     new URL('../assets/hyperframes-project/src/scene-runtime.js', import.meta.url),
   ].map((url) => readFile(url, 'utf8')))).join('\n');
-  return validateDesignConsistency(input);
+  return { ...validateDesignConsistency(input), evidenceDigests: { color: colorEvidence.integrity.digest, contrast: contrastEvidence.integrity.digest }, renderedBytes };
 }
 
 export async function finalizeMotionComposition({ project, input, timestamp = new Date().toISOString() }) {
@@ -95,7 +123,8 @@ export async function finalizeMotionComposition({ project, input, timestamp = ne
     sceneCount: sceneSchema.scenes.length, motionOwnerCount: motionMap.owners.length,
     timelineItemCount: evidence.timeline.items.length,
     hardErrors: [], agentReviewRequired: consistency.agentReviewRequired,
-    integrity: { digest: null, upstream: { sceneSchema: sceneSchema.integrity.digest, motionMap: motionMap.integrity.digest, timeline: evidence.timeline.integrity.digest } },
+    integrity: { digest: null, upstream: { sceneSchema: sceneSchema.integrity.digest, motionMap: motionMap.integrity.digest, timeline: evidence.timeline.integrity.digest,
+      colorEvidence: consistency.evidenceDigests.color, contrastEvidence: consistency.evidenceDigests.contrast } },
     };
     diagnosticArtifact.integrity.digest = computeArtifactDigest(diagnosticArtifact);
     const artifacts = {

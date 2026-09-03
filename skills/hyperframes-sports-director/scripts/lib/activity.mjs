@@ -292,6 +292,16 @@ function timeSynchronizedWindow(syncMap, window) {
     && window.destinationOutSeconds <= interval.endSeconds;
 }
 
+const DEFAULT_DISPLAY_UNITS = Object.freeze({ averageHeartRate: 'bpm', distance: 'm', movingTime: 's', averageSpeed: 'm/s', elevationGain: 'm', averagePower: 'W', averageCadence: 'rpm', averageTemperature: '°C', pace: 's/km', pauseTime: 's', calories: 'kcal' });
+export function formatDataOverlayWording(metricId, fact) {
+  const name = String(metricId).replace(/^metrics\./, '');
+  const unit = fact?.unit ?? DEFAULT_DISPLAY_UNITS[name] ?? null;
+  const raw = fact && typeof fact === 'object' && Object.hasOwn(fact, 'value') ? fact.value : fact;
+  const value = typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
+  if (name === 'elevationGain') return `${value}${unit ? ` ${unit}` : ''} climbed`;
+  return `${value}${unit ? ` ${unit}` : ''}`;
+}
+
 export function buildDataOverlayAllowList(activity, syncMap, options = {}) {
   if (activity?.status !== 'available') return { status: 'unavailable', activityDigest: null, syncMapDigest: null, overlays: [] };
   const overlays = [];
@@ -306,7 +316,7 @@ export function buildDataOverlayAllowList(activity, syncMap, options = {}) {
       metricId: `metrics.${metricId}`,
       displayAuthority: display,
       syncAuthority: timeSynchronizedWindow(syncMap, window) ? 'time-synchronized' : 'whole-activity',
-      wording: options.wording?.[metricId] ?? metricId,
+      wording: formatDataOverlayWording(`metrics.${metricId}`, value),
       colorToken: options.colorTokens?.[metricId] ?? 'color.dataPrimary',
       destinationInSeconds: window.destinationInSeconds,
       destinationOutSeconds: window.destinationOutSeconds,
@@ -331,6 +341,7 @@ export function validateDataOverlayAuthority(activity, syncMap, dataOverlays, op
     if (!authority || overlay.displayAuthority !== authority.displayAuthority) {
       errors.push(`${metricId} display authority does not match current coverage`);
     }
+    if (!authority || overlay.wording !== authority.wording) errors.push(`${metricId} wording does not match its current authorized fact`);
     const expectedSync = timeSynchronizedWindow(syncMap, overlay) ? 'time-synchronized' : 'whole-activity';
     if (overlay.syncAuthority !== expectedSync) errors.push(`${metricId} sync authority does not match the current synchronized interval`);
   }

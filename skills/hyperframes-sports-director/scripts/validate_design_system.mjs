@@ -5,15 +5,18 @@ import { errorResult, parseCliArguments } from './lib/cli.mjs';
 import { projectPath } from './lib/media.mjs';
 
 const REQUIRED = ['colors', 'typography', 'spacing', 'safeZones', 'strokes', 'radii', 'depth', 'motion', 'easing', 'contrast', 'redundantEncodings'];
-const TOKEN_FIELDS = ['colorToken', 'typographyRole', 'spacingToken', 'strokeToken', 'radiusToken', 'easingToken'];
+const TOKEN_GROUP_BY_FIELD = Object.freeze({
+  colorToken: 'colors', typographyRole: 'typography', spacingToken: 'spacing',
+  strokeToken: 'strokes', radiusToken: 'radii', easingToken: 'easing',
+});
 const UNTOKENIZED_STYLE_FIELDS = new Set(['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'spacing', 'strokeWidth', 'borderRadius', 'radius', 'easing']);
 
 function error(code, path, message, category = 'token-resolution') {
   return { code, classification: 'hard_error', category, path, message };
 }
 
-function tokenSet(designSystem) {
-  return new Set(Object.values(designSystem?.tokens ?? {}).flatMap((group) => group && typeof group === 'object' ? Object.keys(group) : []));
+function tokenGroups(designSystem) {
+  return Object.fromEntries(Object.entries(designSystem?.tokens ?? {}).map(([name, group]) => [name, new Set(Object.keys(group ?? {}))]));
 }
 
 function inspect(value, path, declared, errors, inColors = false) {
@@ -24,11 +27,11 @@ function inspect(value, path, declared, errors, inColors = false) {
   }
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}/${key}`;
-    if (TOKEN_FIELDS.includes(key) && typeof child === 'string' && !declared.has(child)
-      && !(key === 'typographyRole' && child.startsWith('type.') && declared.has(child.slice('type.'.length)))) errors.push(error('E_TOKEN_UNRESOLVED', childPath, `unresolved semantic token ${child}`));
+    const group = TOKEN_GROUP_BY_FIELD[key];
+    if (group && typeof child === 'string' && !declared[group]?.has(child)) errors.push(error('E_TOKEN_UNRESOLVED', childPath, `unresolved ${group} token ${child}`));
     if (UNTOKENIZED_STYLE_FIELDS.has(key) && !path.startsWith('/designSystem/tokens') && (typeof child === 'number' || typeof child === 'string')) errors.push(error('E_UNTOKENIZED_STYLE_VALUE', childPath, `${key} must reference a frozen semantic token`));
     if (key === 'colorTokens' && Array.isArray(child)) child.forEach((token, index) => {
-      if (!declared.has(token)) errors.push(error('E_TOKEN_UNRESOLVED', `${childPath}/${index}`, `unresolved semantic token ${token}`));
+      if (!declared.colors?.has(token)) errors.push(error('E_TOKEN_UNRESOLVED', `${childPath}/${index}`, `unresolved colors token ${token}`));
     });
     inspect(child, childPath, declared, errors, inColors || path === '/designSystem/tokens' && key === 'colors');
   }
@@ -41,7 +44,7 @@ export function validateDesignSystem({ designSystem, lookProfile, sceneSchema, m
   for (const group of REQUIRED) if (!designSystem?.tokens?.[group] || Object.keys(designSystem.tokens[group]).length === 0) {
     hardErrors.push(error('E_TOKEN_GROUP_REQUIRED', `/designSystem/tokens/${group}`, `frozen composition requires ${group} tokens`));
   }
-  const declared = tokenSet(designSystem);
+  const declared = tokenGroups(designSystem);
   inspect(sceneSchema, '/sceneSchema', declared, hardErrors);
   inspect(motionMap, '/motionMap', declared, hardErrors);
   inspect(assetManifest, '/assetManifest', declared, hardErrors);

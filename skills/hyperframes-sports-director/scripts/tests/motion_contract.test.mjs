@@ -7,6 +7,7 @@ import { validateColorPipeline } from '../validate_color_pipeline.mjs';
 import { validateContrast } from '../validate_contrast.mjs';
 import { validateDesignSystem } from '../validate_design_system.mjs';
 import { compilePausedTimelines, normalizeRuntimeOutput, resolveDataOverlayDisplay, validateMotionContract } from '../lib/motion.mjs';
+import { loadSchema, validateDocument } from '../lib/contracts.mjs';
 import { commitMotionCompositionState } from '../lib/project-state.mjs';
 import { validateSceneLayout } from '../lib/layout.mjs';
 import { installSceneRuntime } from '../../assets/hyperframes-project/src/scene-runtime.js';
@@ -42,10 +43,10 @@ function fixture() {
       sceneId: 'scene-climb', role: 'journey', colorTokens: ['color.primaryText', 'color.route'], shotIds: ['shot-climb'],
       interval: { entry: [0, 0.5], hold: [0.5, 3.6], exit: [3.6, 4] },
       readableLayers: [{
-        layerId: 'layer-title', ownerId: 'owner-title', readableInterval: [0.5, 3.5], typographyRole: 'type.journeyTitle',
-        textRect: [{ time: 0.5, x: 80, y: 80, width: 700, height: 120 }, { time: 3.5, x: 80, y: 80, width: 700, height: 120 }],
-        subjectRect: [{ time: 0.5, x: 1200, y: 400, width: 500, height: 900 }, { time: 3.5, x: 1200, y: 400, width: 500, height: 900 }],
-        quietZone: [{ time: 0.5, x: 40, y: 40, width: 820, height: 200 }, { time: 3.5, x: 40, y: 40, width: 820, height: 200 }],
+        layerId: 'layer-title', ownerId: 'owner-title', readableInterval: [0, 4], typographyRole: 'type.journeyTitle',
+        textRect: [{ time: 0, x: 80, y: 80, width: 700, height: 120 }, { time: 4, x: 80, y: 80, width: 700, height: 120 }],
+        subjectRect: [{ time: 0, x: 1200, y: 400, width: 500, height: 900 }, { time: 4, x: 1200, y: 400, width: 500, height: 900 }],
+        quietZone: [{ time: 0, x: 40, y: 40, width: 820, height: 200 }, { time: 4, x: 40, y: 40, width: 820, height: 200 }],
         safetyRegions: [{ kind: 'road', rect: { x: 1080, y: 300, width: 840, height: 780 } }],
         horizonRelation: 'above', screenDirection: 'left-to-right', motionDirection: 'forward', evidenceFrameIds: ['frame-climb-01'],
       }],
@@ -76,7 +77,7 @@ function fixture() {
   dataOverlays.integrity.upstream = { activity: digest('4'), syncMap: digest('5') };
   const renderedTokenSamples = [{ token: 'color.route', deltaE2000: 0.8, alpha: 1 }];
   const colorVisionProofs = ['protanopia', 'deuteranopia'].map((simulation) => ({ simulation, semantic: 'route', contrastRatio: 3.2, encodings: ['label', 'boundary'] }));
-  const contrastLayers = [{ layerId: 'layer-title', kind: 'critical-text', readableInterval: [0.5, 3.5], samples: Array.from({ length: 31 }, (_, index) => ({ time: 0.5 + index / 10, ratio: 7.2, hasBackgroundPass: true, hasCoverageMatte: true })) }];
+  const contrastLayers = [{ layerId: 'layer-title', kind: 'critical-text', readableInterval: [0, 4], samples: Array.from({ length: 41 }, (_, index) => ({ time: index / 10, ratio: 7.2, hasBackgroundPass: true, hasCoverageMatte: true })) }];
   return { designSystem, lookProfile, assetManifest, sceneSchema, motionMap, dataOverlays, timeline, activity, syncMap, primaryMetricIds: ['elevationGain'], renderedTokenSamples, colorVisionProofs, contrastLayers };
 }
 
@@ -151,4 +152,36 @@ test('data display reads normalized facts without recalculation and motion gate 
   const next = commitMotionCompositionState(state, artifacts, { timestamp: '2026-09-01T12:30:00.000Z', producerCommand: 'validate_design_consistency.mjs' });
   assert.equal(next.state, 'MOTION_COMPOSITION');
   assert.deepEqual(next.gateEvidence.map(({ role }) => role).sort(), Object.keys(artifacts).sort());
+});
+
+test('available composition schemas require current authority bindings', async () => {
+  const motion = { $schema: 'https://hyperframes.local/schemas/motion-map.schema.json', schemaVersion: '1.0.0', revision: 1,
+    motionRevision: 'motion-1', status: 'available', designRevision: 'design-1', assetRevision: 'assets-1', owners: [], integrity: { digest: null, upstream: {} } };
+  const scene = { $schema: 'https://hyperframes.local/schemas/scene-schema.schema.json', schemaVersion: '1.0.0', revision: 1,
+    status: 'available', designRevision: 'design-1', lookRevision: 'look-1', scenes: [], integrity: { digest: null, upstream: {} } };
+  assert.equal(validateDocument(await loadSchema('motion-map'), motion).valid, false);
+  assert.equal(validateDocument(await loadSchema('scene-schema'), scene).valid, false);
+});
+
+test('layout and contrast evidence cover the entire readable motion window at 10Hz', () => {
+  const input = fixture();
+  const layer = input.sceneSchema.scenes[0].readableLayers[0];
+  layer.readableInterval = [0, 4];
+  layer.textRect = [{ time: 0, x: 0, y: 80, width: 300, height: 120 }, { time: 4, x: 1000, y: 80, width: 300, height: 120 }];
+  layer.subjectRect = [{ time: 0, x: 600, y: 80, width: 100, height: 120 }, { time: 4, x: 600, y: 80, width: 100, height: 120 }];
+  layer.quietZone = [{ time: 0, x: 0, y: 40, width: 1400, height: 200 }, { time: 4, x: 0, y: 40, width: 1400, height: 200 }];
+  assert.ok(validateSceneLayout(input).hardErrors.some(({ code, time }) => code === 'E_LAYOUT_COLLISION' && time > 1 && time < 4));
+  const sparse = [{ layerId: 'layer-title', kind: 'critical-text', readableInterval: [0, 1], samples: [
+    { time: 0, ratio: 7, hasBackgroundPass: true, hasCoverageMatte: true }, { time: 1, ratio: 7, hasBackgroundPass: true, hasCoverageMatte: true },
+  ] }];
+  assert.ok(validateContrast({ layers: sparse, sceneSchema: input.sceneSchema, motionMap: input.motionMap }).hardErrors.some(({ code }) => code === 'E_CONTRAST_COVERAGE'));
+});
+
+test('overlay wording and semantic token references are deterministic and group-typed', () => {
+  const input = fixture();
+  input.dataOverlays.overlays[0].wording = 'Record-breaking mountain conquest';
+  assert.ok(validateMotionContract(input).hardErrors.some(({ code }) => code === 'E_OVERLAY_WORDING'));
+  const wrongGroup = fixture();
+  wrongGroup.motionMap.owners[0].colorToken = 'type.journeyTitle';
+  assert.ok(validateDesignSystem(wrongGroup).hardErrors.some(({ code }) => code === 'E_TOKEN_UNRESOLVED'));
 });

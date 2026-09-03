@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hyperframes.local/schemas/design-contrast-evidence.schema.json",
+  "type": "object",
+  "required": ["$schema", "schemaVersion", "revision", "producerCommand", "renderedArtifact", "layers", "integrity"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "const": "https://hyperframes.local/schemas/design-contrast-evidence.schema.json" },
+    "schemaVersion": { "const": "1.0.0" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "producerCommand": { "const": "render_motion_proofs.mjs" },
+    "renderedArtifact": { "$ref": "#/$defs/renderedArtifact" },
+    "layers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/layer" } },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "interval": { "type": "array", "prefixItems": [{ "type": "number", "minimum": 0 }, { "type": "number", "exclusiveMinimum": 0 }], "minItems": 2, "maxItems": 2 },
+    "renderedArtifact": { "type": "object", "required": ["path", "digest"], "additionalProperties": false, "properties": { "path": { "type": "string", "pattern": "^review/[a-zA-Z0-9._/-]+$" }, "digest": { "$ref": "#/$defs/digest" } } },
+    "sample": { "type": "object", "required": ["time", "ratio", "hasBackgroundPass", "hasCoverageMatte"], "additionalProperties": false, "properties": { "time": { "type": "number", "minimum": 0 }, "ratio": { "type": "number", "minimum": 1 }, "hasBackgroundPass": { "const": true }, "hasCoverageMatte": { "const": true } } },
+    "layer": { "type": "object", "required": ["layerId", "kind", "readableInterval", "samples"], "additionalProperties": false, "properties": { "layerId": { "type": "string", "pattern": "^layer-[a-zA-Z0-9-]+$" }, "kind": { "enum": ["critical-text", "ordinary-text", "large-text", "meaningful-graphic"] }, "readableInterval": { "$ref": "#/$defs/interval" }, "samples": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/sample" } } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "$ref": "#/$defs/digest" }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
+}

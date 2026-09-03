@@ -24,7 +24,7 @@
     "integrity": { "$ref": "#/$defs/integrity" }
   }, "additionalProperties": false,
   "allOf": [{
-    "if": { "properties": { "status": { "const": "frozen" } } },
+    "if": { "properties": { "status": { "enum": ["available", "frozen"] } } },
     "then": {
       "properties": { "designSystemDigest": true, "lookProfileDigest": true },
       "required": ["designSystemDigest", "lookProfileDigest"]

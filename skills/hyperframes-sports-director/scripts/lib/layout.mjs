@@ -31,6 +31,20 @@ function validInterval(interval) {
     && Number.isFinite(interval[1]) && interval[1] > interval[0];
 }
 
+function sampledWindow(start, end, additional = []) {
+  const count = Math.ceil((end - start) * 10);
+  const regular = Array.from({ length: count + 1 }, (_, index) => Math.min(end, start + (index / 10)));
+  return [...new Set([...regular, end, ...additional].filter((time) => Number.isFinite(time) && time >= start && time <= end))]
+    .sort((left, right) => left - right);
+}
+
+export function requiredReadableTimes(scene, layer, owner) {
+  const bounds = Object.values(scene?.interval ?? {}).flat();
+  const extrema = ['textRect', 'subjectRect', 'quietZone'].flatMap((field) => (layer?.[field] ?? []).map(({ time }) => time));
+  return [...new Set([...(layer?.readableInterval ?? []), ...bounds, owner?.transition?.midpointSeconds, ...extrema].filter(Number.isFinite))]
+    .sort((left, right) => left - right);
+}
+
 export function validateSceneLayout({ sceneSchema, motionMap } = {}) {
   const hardErrors = [];
   const ownerById = new Map((motionMap?.owners ?? []).map((owner) => [owner.ownerId, owner]));
@@ -52,8 +66,15 @@ export function validateSceneLayout({ sceneSchema, motionMap } = {}) {
       }
       if (!Array.isArray(layer.evidenceFrameIds) || layer.evidenceFrameIds.length === 0) hardErrors.push(finding('E_LAYOUT_EVIDENCE', `${path}/evidenceFrameIds`, 'readable layer requires evidence-frame IDs'));
       if (!validInterval(layer.readableInterval)) hardErrors.push(finding('E_LAYOUT_EVIDENCE', `${path}/readableInterval`, 'readable interval must be non-empty'));
-      const times = [...new Set([...(layer.textRect ?? []), ...(layer.subjectRect ?? []), ...(layer.quietZone ?? [])]
-        .map(({ time }) => time).filter(Number.isFinite))].sort((left, right) => left - right);
+      const owner = ownerById.get(layer.ownerId);
+      const window = layer.readableInterval;
+      const sceneStart = scene.interval?.entry?.[0]; const sceneEnd = scene.interval?.exit?.[1];
+      if (validInterval(window) && (window[0] > sceneStart || window[1] < sceneEnd)) hardErrors.push(finding('E_LAYOUT_COVERAGE', `${path}/readableInterval`, 'readable evidence must cover entry, hold, exit, and their endpoints'));
+      for (const field of ['textRect', 'subjectRect', 'quietZone']) {
+        const track = [...(layer[field] ?? [])].sort((left, right) => left.time - right.time);
+        if (validInterval(window) && (track[0]?.time > window[0] || track.at(-1)?.time < window[1])) hardErrors.push(finding('E_LAYOUT_COVERAGE', `${path}/${field}`, `${field} must cover the complete readable interval`));
+      }
+      const times = validInterval(window) ? sampledWindow(window[0], window[1], requiredReadableTimes(scene, layer, owner)) : [];
       for (const time of times) {
         const textRect = sampleTrackedRect(layer.textRect, time);
         const subjectRect = sampleTrackedRect(layer.subjectRect, time);
@@ -64,7 +85,6 @@ export function validateSceneLayout({ sceneSchema, motionMap } = {}) {
           hardErrors.push(finding('E_LAYOUT_COLLISION', path, 'readable layer intersects tracked subject/road/water safety region', { time }));
         }
       }
-      const owner = ownerById.get(layer.ownerId);
       if (owner?.motionDirection && owner.motionDirection !== layer.motionDirection && !owner.designReason) {
         hardErrors.push(finding('E_DIRECTION_CONFLICT', path, 'layer animates against approved footage direction without a recorded design reason'));
       }

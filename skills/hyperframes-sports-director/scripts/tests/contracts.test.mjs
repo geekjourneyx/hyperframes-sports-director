@@ -171,7 +171,7 @@ function projectStateAt(base, state) {
 
 test('v1 contracts enforce identity, truth chains, lifecycle, integrity, paths, and time', async () => {
   const schemaNames = [
-    'activity', 'asset-manifest', 'beat-map', 'data-overlays', 'design-system',
+    'activity', 'asset-manifest', 'beat-map', 'data-overlays', 'design-color-evidence', 'design-contrast-evidence', 'design-system',
     'direction-proposals', 'director-approval', 'edit-brief', 'look-profile',
     'media-index', 'motion-map', 'probe', 'project', 'project-state',
     'review-metrics', 'scene-schema', 'segments', 'shot', 'sync-map',

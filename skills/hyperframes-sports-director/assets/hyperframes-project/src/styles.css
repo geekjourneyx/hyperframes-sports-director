@@ -2,6 +2,8 @@
   --hf-background: var(--color-background);
   --hf-primary-text: var(--color-primaryText);
   --hf-accent: var(--color-accent);
+  --hf-matte-background: black;
+  --hf-matte-coverage: white;
 }
 * { box-sizing: border-box; }
 html, body, #hyperframes-stage { width: 100%; height: 100%; margin: 0; overflow: hidden; }

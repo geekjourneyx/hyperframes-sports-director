@@ -391,13 +391,23 @@ async function readCurrentAssetManifest(projectRoot, projectState) {
   }
 }
 
+export function validateMotionProgressDiagnostics(projectState, diagnostics) {
+  const records = (projectState?.gateEvidence ?? []).filter(({ gate, role }) => gate === 'MOTION_COMPOSITION' && role === 'DESIGN_CONSISTENCY');
+  const evidence = records[0];
+  const valid = verifyArtifactIntegrity(diagnostics).valid && records.length === 1
+    && diagnostics?.status === 'hard-gates-passed'
+    && evidence?.digest === diagnostics.integrity.digest
+    && evidence?.revision === diagnostics.revision
+    && stableEqual(evidence?.qualifiers, ['hard-gates-passed']);
+  return { valid, code: valid ? null : 'E_DIRECTION_PAIR_INVALID' };
+}
+
 async function readCurrentMotionProgress(projectRoot, projectState) {
   if (!['MOTION_COMPOSITION', 'FINAL_RENDER', 'FINAL_QA', 'DELIVERED', 'USER_ACCEPTED'].includes(projectState.state)) return null;
   const evidence = projectState.gateEvidence?.find(({ gate, role }) => gate === 'MOTION_COMPOSITION' && role === 'DESIGN_CONSISTENCY');
   if (!evidence) return null;
   const diagnostics = await readJson(projectRoot, 'review/design-consistency.json', 'E_DIRECTION_PAIR_INVALID');
-  if (diagnostics.status !== 'hard-gates-passed' || evidence?.digest !== diagnostics.integrity.digest
-    || evidence.revision !== diagnostics.revision || !evidence.qualifiers?.includes('hard-gates-passed')) {
+  if (!validateMotionProgressDiagnostics(projectState, diagnostics).valid) {
     fail('E_DIRECTION_PAIR_INVALID', 'motion diagnostics do not match current MOTION_COMPOSITION gate evidence');
   }
   return {
