@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "1.0.0", "profile": "cycling", "status": "pending-local-run",
+  "requiredInputs": ["Action 5 Pro video", "phone stills", "licensed local music", "FIT activity"],
+  "privacy": "public route derivative must trim private endpoints", "committable": false
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion":"1.0.0","profile":"pool-swimming",
+  "brief":{"durationSeconds":1,"delivery":"1920x1080 SDR Rec.709 MP4","short4kExerciseSeconds":0.25,"gps":"unavailable","availableActivityFields":["lap","duration"],"repetitionSuppression":true,"turnContinuity":true,"look":"underwater-consistent"},
+  "syntheticMedia":{"generator":"ffmpeg-lavfi","deterministic":true,"finalFixture":"local-real-acceptance/pool-swimming-final.mp4","committed":false},
+  "pipeline":{"states":["INTAKE","CAPABILITY_CHECK","SCAN","ANALYZE","ROUGH_CUT","DIRECTOR_REVIEW_READY","DIRECTOR_LOCK","STYLE_ANCHOR","ASSET_PRODUCTION","MOTION_COMPOSITION","FINAL_RENDER","FINAL_QA","DELIVERED"],"finalState":"DELIVERED","userAccepted":false,"directorApprovals":1,"approvalHashBound":true,"transactionalDesignLock":true,"equalWholeDirectionCandidates":true,"styleAnchor":"accepted","representativeCombination":"accepted","finalCombinationProofs":2,"combinationProofRoles":["lap-label-with-underwater-shot","duration-label-with-turn-shot"],"workbenchUpdates":["DIRECTOR_REVIEW_READY","DIRECTOR_LOCK","STYLE_ANCHOR","ASSET_PRODUCTION","MOTION_COMPOSITION","FINAL_RENDER","FINAL_QA","DELIVERED"],"repairs":[],"degradations":[]},
+  "truth":{"recordedMediaIndependent":true,"activityDataIndependent":true,"designIndependent":true,"gps":{"value":null,"status":"unavailable"},"labelsOnlyFromAvailableRecords":true,"generatedMediaDocumentary":false},
+  "realFootageAcceptance":{"manifest":"real-footage-acceptance.json","status":"pending-local-run"}
+}

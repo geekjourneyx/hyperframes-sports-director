@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "profile": "cycling",
+  "brief": { "durationSeconds": 1, "delivery": "3840x2160 SDR Rec.709 MP4", "localMusic": true, "copy": ["title", "chapters", "closing"], "activity": "FIT", "routePrivacy": "trimmed", "speedRamp": true, "cameraRoles": ["action", "phone-still"], "generatedVisualRoles": ["route", "effort"] },
+  "syntheticMedia": { "generator": "ffmpeg-lavfi", "deterministic": true, "finalFixture": "local-real-acceptance/cycling-final.mp4", "committed": false },
+  "pipeline": {
+    "states": ["INTAKE", "CAPABILITY_CHECK", "SCAN", "ANALYZE", "ROUGH_CUT", "DIRECTOR_REVIEW_READY", "DIRECTOR_LOCK", "STYLE_ANCHOR", "ASSET_PRODUCTION", "MOTION_COMPOSITION", "FINAL_RENDER", "FINAL_QA", "DELIVERED"],
+    "finalState": "DELIVERED", "userAccepted": false, "directorApprovals": 1, "approvalHashBound": true, "transactionalDesignLock": true, "equalWholeDirectionCandidates": true,
+    "styleAnchor": "accepted", "representativeCombination": "accepted", "finalCombinationProofs": 2,
+    "combinationProofRoles": ["route-with-action-footage", "effort-with-phone-still"],
+    "workbenchUpdates": ["DIRECTOR_REVIEW_READY", "DIRECTOR_LOCK", "STYLE_ANCHOR", "ASSET_PRODUCTION", "MOTION_COMPOSITION", "FINAL_RENDER", "FINAL_QA", "DELIVERED"],
+    "repairs": [{ "attempt": 1, "maximum": 3, "class": "position", "gate": "layout_collision", "approvedBoundaryChanged": false }], "degradations": []
+  },
+  "truth": { "recordedMediaIndependent": true, "activityDataIndependent": true, "designIndependent": true, "missingValues": "null-or-unavailable", "generatedMediaDocumentary": false },
+  "realFootageAcceptance": { "manifest": "real-footage-acceptance.json", "status": "pending-local-run" }
+}

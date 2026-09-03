@@ -1,5 +1,23 @@
 {
   "schema_version": "1.0",
+  "release_scoring": {
+    "passing_score": 90,
+    "minimum_category_ratio": 0.8,
+    "categories": [
+      { "id": "structure-installability", "points": 10, "checks": [{"source":"evidence","id":"structure","points":5},{"source":"evidence","id":"workbench-current","points":5}] },
+      { "id": "media-provenance-clarity", "points": 15, "checks": [{"source":"metric","id":"closed_file_probe","points":5},{"source":"metric","id":"av_drift","points":5},{"source":"metric","id":"input_color_profile","points":5}] },
+      { "id": "shot-evidence-edit-continuity", "points": 20, "checks": [{"source":"evidence","id":"shot-bounds","points":10},{"source":"evidence","id":"edit-continuity","points":10}] },
+      { "id": "audio-continuity", "points": 10, "checks": [{"source":"metric","id":"audio_clipping","points":3},{"source":"metric","id":"loudness","points":4},{"source":"evidence","id":"audio-continuity","points":3}] },
+      { "id": "activity-truth-privacy", "points": 10, "checks": [{"source":"evidence","id":"activity-truth","points":5},{"source":"evidence","id":"route-privacy","points":5}] },
+      { "id": "visual-assets-provenance", "points": 15, "checks": [{"source":"metric","id":"local_contrast","points":3},{"source":"metric","id":"token_color","points":3},{"source":"metric","id":"cross_scene_consistency","points":3},{"source":"evidence","id":"design-lock","points":2},{"source":"evidence","id":"style-anchor","points":2},{"source":"evidence","id":"combination-proofs","points":2}] },
+      { "id": "motion-transitions", "points": 10, "checks": [{"source":"metric","id":"layout_collision","points":2},{"source":"metric","id":"quiet_zone_loss","points":2},{"source":"evidence","id":"motion-ownership","points":3},{"source":"evidence","id":"deterministic-timeline","points":3}] },
+      { "id": "final-review-delivery", "points": 10, "checks": [{"source":"metric","id":"black_frames","points":2},{"source":"metric","id":"freeze_spans","points":2},{"source":"metric","id":"detail_loss","points":2},{"source":"evidence","id":"final-inspection","points":2},{"source":"evidence","id":"delivered","points":2}] }
+    ],
+    "required_hard_gates": ["closed-file-reprobe", "machine-hard-gates", "single-director-lock", "style-anchor", "representative-combination", "final-combinations", "delivered-state"],
+    "required_profile_maturity": "release-grade",
+    "required_agent_inspection": "accepted",
+    "required_human_reviews": ["workbench", "finalVideo"]
+  },
   "evaluation_input": {
     "prompt_path": "prompt",
     "evaluated_output_path": "evaluated_output",
