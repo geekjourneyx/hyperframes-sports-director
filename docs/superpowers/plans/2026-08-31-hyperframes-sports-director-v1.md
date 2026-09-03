@@ -33,8 +33,9 @@ This table is authoritative for handoff. Do not repeat an accepted task merely b
 | 13 — HyperFrames motion composition and scene ownership | Complete | `5309f75aecde457d660ce085dcb6f31680fb375c` | Deterministic paused-time composition, exact layer ownership, schema-bound proof inputs, design hard gates, and Agent-review diagnostics are accepted; do not recreate. |
 | 14 — original-backed final render | Complete | `5235fd4c9b35df3ea1a7546d3d3ea01fd51029cc` | Original-only final rendering, deterministic HyperFrames composition, closed-file proof, and transactional `FINAL_RENDER` publication are accepted; do not recreate. |
 | 15 — encoded final inspection and bounded repair | Complete | `dfd203c41d2fb7070dbf02318c5c7ae9bc3950e1` | Decoded final-MP4 evidence, pixel-derived hard gates, Agent review, transactional state publication, and bounded repair are accepted; do not recreate. |
-| 16 — lean discoverable Skill and UI metadata | Next | — | Write and evaluate the minimum useful Skill over the accepted executable workflow. |
-| 17–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
+| 16 — lean discoverable Skill and UI metadata | Complete | `e5bb5ccc3845552fc71f41602ebe968ebdfcdf4a` | The concise Skill router, one-hop references, executable commands, and implicit-invocation UI metadata are accepted; do not recreate. |
+| 17 — Skill GREEN/REFACTOR evals and triggering | Next | — | Run paired behavior and trigger evals against the accepted Skill, then refactor only from observed failures. |
+| 18–19 | Pending | — | Execute in dependency order after each preceding task passes RED, GREEN, full-suite, independent review, and remote checkpoint. |
 
 A prior workspace may contain abandoned, uncommitted files for the next task. They are not accepted work and must not be treated as authoritative. The remote branch, this design specification, the execution-status table, and accepted commits are the recovery source of truth.
 
