@@ -11,7 +11,8 @@ test('contracts CI installs ffmpeg on every matrix runner before contract tests'
 
   const setup = contractsJob.slice(0, contractTestIndex);
   assert.match(setup, /if: runner\.os == 'Linux'[\s\S]*apt-get install -y ffmpeg/);
-  assert.match(setup, /if: runner\.os == 'macOS'[\s\S]*brew install ffmpeg/);
+  assert.match(setup, /if: runner\.os == 'macOS'[\s\S]*brew install ffmpeg-full/);
+  assert.match(setup, /brew --prefix ffmpeg-full\)\/bin[\s\S]*GITHUB_PATH/);
 });
 
 test('cross-platform fixtures do not require the optional ffmpeg libwebp encoder', async () => {
