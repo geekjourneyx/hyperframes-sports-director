@@ -8,7 +8,16 @@
   "lifecycle": [{ "status": "draft", "at": "1970-01-01T00:00:00.000Z" }],
   "tokens": {
     "colors": { "color.background": "#050505", "color.primaryText": "#F5F2EA", "color.accent": "#C9A86A", "color.dataPrimary": "#F5F2EA" },
-    "typography": {}, "spacing": {}, "safeZones": {}, "strokes": {}, "radii": {}, "depth": {}, "motion": {}
+    "typography": {},
+    "spacing": { "space.unit": 8, "space.titleInset": 64 },
+    "safeZones": { "safe.title": 0.08, "safe.metric": 0.06 },
+    "strokes": { "stroke.hairline": 1, "stroke.route": 4 },
+    "radii": { "radius.small": 2, "radius.panel": 18 },
+    "depth": { "depth.base": 0, "depth.title": 2 },
+    "motion": { "duration.entry": 0.5, "duration.exit": 0.4 },
+    "easing": { "easing.standard": "cubic-out" },
+    "contrast": { "criticalTextTarget": 7, "textMinimum": 4.5, "meaningfulGraphicMinimum": 3 },
+    "redundantEncodings": { "route": "label-boundary-pattern", "grade": "label-symbol-pattern", "status": "label-symbol-boundary" }
   },
   "integrity": { "digest": null, "upstream": {} }
 }

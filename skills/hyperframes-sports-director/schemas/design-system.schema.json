@@ -19,7 +19,10 @@
       "strokes": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
       "radii": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
       "depth": { "type": "object", "additionalProperties": { "type": "number" } },
-      "motion": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
+      "motion": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+      "easing": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+      "contrast": { "type": "object", "additionalProperties": { "type": "number", "minimum": 1 } },
+      "redundantEncodings": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
     } },
     "selectedDirection": { "type": "object", "required": ["candidateId", "digest", "candidate"], "additionalProperties": false, "properties": {
       "candidateId": { "type": "string", "pattern": "^candidate-[a-zA-Z0-9-]+$" },
@@ -28,7 +31,24 @@
     } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
-  "allOf": [{ "if": { "properties": { "status": { "const": "frozen" } } }, "then": { "properties": { "selectedDirection": true }, "required": ["selectedDirection"] } }],
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "frozen" } } },
+    "then": {
+      "properties": {
+        "selectedDirection": true,
+        "tokens": {
+          "type": "object",
+          "required": ["easing", "contrast", "redundantEncodings"],
+          "properties": {
+            "easing": { "type": "object", "minProperties": 1 },
+            "contrast": { "type": "object", "minProperties": 1 },
+            "redundantEncodings": { "type": "object", "minProperties": 1 }
+          }
+        }
+      },
+      "required": ["selectedDirection"]
+    }
+  }],
   "additionalProperties": false,
   "$defs": {
     "status": { "enum": ["draft", "proposed", "approved", "frozen", "superseded"] },

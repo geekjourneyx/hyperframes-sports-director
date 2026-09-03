@@ -94,6 +94,7 @@ function draftDesign() {
     tokens: {
       colors: { 'color.background': '#050505', 'color.primaryText': '#F5F2EA', 'color.accent': '#C9A86A', 'color.dataPrimary': '#F5F2EA' },
       typography: {}, spacing: { unit: 8 }, safeZones: { title: 0.08 }, strokes: { thin: 1 }, radii: { small: 2 }, depth: { base: 0 }, motion: { fast: 0.2 },
+      easing: { standard: 'power2.out' }, contrast: { criticalText: 7 }, redundantEncodings: { status: 'shape-and-label' },
     }, integrity: { digest: null, upstream: {} },
   });
 }

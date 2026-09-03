@@ -1,0 +1,12 @@
+:root {
+  --hf-background: var(--color-background);
+  --hf-primary-text: var(--color-primaryText);
+  --hf-accent: var(--color-accent);
+}
+* { box-sizing: border-box; }
+html, body, #hyperframes-stage { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--hf-background); color: var(--hf-primary-text); }
+#hyperframes-stage { position: relative; isolation: isolate; }
+[data-hf-layer], [data-hf-kind="background"] { position: absolute; }
+[data-hf-kind="background"] { inset: 0; }
+[data-hf-layer] { overflow: hidden; }

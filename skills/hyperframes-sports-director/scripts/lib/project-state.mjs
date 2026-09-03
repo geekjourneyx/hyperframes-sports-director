@@ -124,6 +124,28 @@ export function commitDirectorLockState(projectState, artifacts, context) {
   return result;
 }
 
+export function commitMotionCompositionState(projectState, artifacts, context) {
+  if (projectState?.state !== 'ASSET_PRODUCTION') throw new ProjectStateError('E_MOTION_COMPOSITION_STATE', 'MOTION_COMPOSITION requires accepted asset production');
+  if (!context || !Number.isFinite(Date.parse(context.timestamp)) || context.producerCommand !== 'validate_design_consistency.mjs') {
+    throw new ProjectStateError('E_EVIDENCE_INVALID', 'MOTION_COMPOSITION requires a timestamp and its deterministic producer command');
+  }
+  const qualifiers = { SCENE_SCHEMA: 'frozen', MOTION_MAP: 'frozen', TIMELINE: 'final', DESIGN_CONSISTENCY: 'hard-gates-passed' };
+  const records = Object.keys(qualifiers).map((role) => {
+    const artifact = artifacts?.[role];
+    if (!Number.isInteger(artifact?.revision) || artifact.revision < 1 || !DIGEST.test(artifact.digest ?? '')) throw new ProjectStateError('E_EVIDENCE_INVALID', `MOTION_COMPOSITION requires current ${role}`);
+    return evidenceRecord('MOTION_COMPOSITION', role, artifact.revision, artifact.digest, context.timestamp, context.producerCommand, qualifiers[role]);
+  });
+  validateGateEvidence('MOTION_COMPOSITION', records, artifacts, { timestamp: context.timestamp, skipGateRequirements: true });
+  const result = structuredClone(projectState);
+  result.previousState = projectState.state; result.state = 'MOTION_COMPOSITION'; result.stateEnteredAt = context.timestamp; result.revision += 1;
+  result.gateEvidence.push(...records);
+  result.transitions.push({ from: projectState.state, to: 'MOTION_COMPOSITION', at: context.timestamp,
+    evidenceDigests: Object.fromEntries(records.map(({ role, digest }) => [role, digest])),
+    evidenceRevisions: Object.fromEntries(records.map(({ role, revision }) => [role, revision])) });
+  result.integrity.digest = null;
+  return result;
+}
+
 export function blockCurrentRun(projectState, boundary, context) {
   if (!projectState || TERMINAL_STATES.has(projectState.state)) {
     throw new ProjectStateError('E_STATE_TRANSITION', 'a terminal run cannot be blocked again');

@@ -78,8 +78,9 @@ async function finalAuthorityFixture(t) {
     assets: [], integrity: { digest: null, upstream: { designSystem: digest('7'), lookProfile: digest('8'), assetPlan: digest('9') } },
   });
   const motionMap = stamp({ ...(await template('MOTION_MAP')), revision: 2, motionRevision: 'motion-2', status: 'frozen',
-    designRevision: 'design-2', assetRevision: 'assets-2', integrity: { digest: null,
-      upstream: { designSystem: digest('7'), assetManifest: assetManifest.integrity.digest } } });
+    designRevision: 'design-2', assetRevision: 'assets-2', designSystemDigest: digest('7'),
+    assetManifestDigest: assetManifest.integrity.digest, sceneSchemaDigest: digest('6'), integrity: { digest: null,
+      upstream: { designSystem: digest('7'), assetManifest: assetManifest.integrity.digest, sceneSchema: digest('6') } } });
   const states = ['INTAKE', 'CAPABILITY_CHECK', 'SCAN', 'ANALYZE', 'ROUGH_CUT', 'DIRECTOR_REVIEW_READY',
     'DIRECTOR_LOCK', 'STYLE_ANCHOR', 'ASSET_PRODUCTION', 'MOTION_COMPOSITION'];
   const gateEvidence = [];

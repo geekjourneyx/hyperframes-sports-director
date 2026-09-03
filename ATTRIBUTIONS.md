@@ -34,3 +34,11 @@ independently implemented responsibilities.
   original to this repository and extends the workflow with sports narrative
   roles, lock-bound provenance, effective-resolution gates, and documentary
   truth constraints.
+- `skills/hyperframes-sports-director/assets/hyperframes-project/`,
+  `scripts/lib/{motion,layout}.mjs`, the four design-consistency validators, and
+  `references/hyperframes-composition.md` adapt HyperFrames Motion Director's
+  paused absolute-time timeline, layer-ownership, component choreography, and
+  deterministic review-extraction concepts at the exact pinned revision. The
+  implementation is original to this repository and adds sports continuity,
+  activity authority, Rec.709/color-vision, local-contrast, and explicit
+  hard-versus-Agent-review gates.

@@ -4,21 +4,40 @@
   "properties": {
     "$schema": { "const": "https://hyperframes.local/schemas/scene-schema.schema.json" }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 }, "status": { "enum": ["draft", "available", "frozen", "superseded"] },
     "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" }, "lookRevision": { "type": "string", "pattern": "^look-[a-zA-Z0-9-]+$" },
+    "designSystemDigest": { "$ref": "#/$defs/digest" }, "lookProfileDigest": { "$ref": "#/$defs/digest" },
     "scenes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["sceneId", "role", "colorTokens", "shotIds"],
+        "required": ["sceneId", "role", "colorTokens", "shotIds", "interval", "readableLayers"],
         "additionalProperties": false,
         "properties": {
           "sceneId": { "type": "string", "pattern": "^scene-[a-zA-Z0-9-]+$" },
           "role": { "type": "string", "minLength": 1 },
           "colorTokens": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" } },
-          "shotIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^shot-[a-zA-Z0-9-]+$" } }
+          "shotIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^shot-[a-zA-Z0-9-]+$" } },
+          "interval": { "$ref": "#/$defs/sceneInterval" },
+          "readableLayers": { "type": "array", "items": { "$ref": "#/$defs/readableLayer" } }
         }
       }
     },
     "integrity": { "$ref": "#/$defs/integrity" }
   }, "additionalProperties": false,
-  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "frozen" } } },
+    "then": {
+      "properties": { "designSystemDigest": true, "lookProfileDigest": true },
+      "required": ["designSystemDigest", "lookProfileDigest"]
+    }
+  }],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "interval": { "type": "array", "prefixItems": [{ "type": "number", "minimum": 0 }, { "type": "number", "exclusiveMinimum": 0 }], "minItems": 2, "maxItems": 2 },
+    "sceneInterval": { "type": "object", "required": ["entry", "hold", "exit"], "additionalProperties": false, "properties": { "entry": { "$ref": "#/$defs/interval" }, "hold": { "$ref": "#/$defs/interval" }, "exit": { "$ref": "#/$defs/interval" } } },
+    "trackedRect": { "type": "object", "required": ["time", "x", "y", "width", "height"], "additionalProperties": false, "properties": { "time": { "type": "number", "minimum": 0 }, "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 }, "width": { "type": "number", "exclusiveMinimum": 0 }, "height": { "type": "number", "exclusiveMinimum": 0 } } },
+    "rect": { "type": "object", "required": ["x", "y", "width", "height"], "additionalProperties": false, "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 }, "width": { "type": "number", "exclusiveMinimum": 0 }, "height": { "type": "number", "exclusiveMinimum": 0 } } },
+    "safetyRegion": { "type": "object", "required": ["kind", "rect"], "additionalProperties": false, "properties": { "kind": { "enum": ["subject", "road", "water"] }, "rect": { "$ref": "#/$defs/rect" } } },
+    "readableLayer": { "type": "object", "required": ["layerId", "ownerId", "readableInterval", "typographyRole", "textRect", "subjectRect", "quietZone", "horizonRelation", "screenDirection", "motionDirection", "evidenceFrameIds"], "additionalProperties": false, "properties": { "layerId": { "type": "string", "pattern": "^layer-[a-zA-Z0-9-]+$" }, "ownerId": { "type": "string", "pattern": "^owner-[a-zA-Z0-9-]+$" }, "readableInterval": { "$ref": "#/$defs/interval" }, "typographyRole": { "type": "string", "pattern": "^type\\.[a-zA-Z0-9.-]+$" }, "textRect": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/trackedRect" } }, "subjectRect": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/trackedRect" } }, "quietZone": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/trackedRect" } }, "safetyRegions": { "type": "array", "items": { "$ref": "#/$defs/safetyRegion" } }, "horizonRelation": { "type": "string", "minLength": 1 }, "screenDirection": { "type": "string", "minLength": 1 }, "motionDirection": { "type": "string", "minLength": 1 }, "evidenceFrameIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
 }

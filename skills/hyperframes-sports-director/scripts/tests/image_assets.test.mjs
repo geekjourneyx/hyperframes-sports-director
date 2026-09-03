@@ -43,6 +43,7 @@ function lockedDirection() {
     tokens: {
       colors: { 'color.background': '#050505', 'color.primaryText': '#F5F2EA', 'color.accent': '#C9A86A' },
       typography: {}, spacing: {}, safeZones: {}, strokes: {}, radii: {}, depth: {}, motion: {},
+      easing: { standard: 'power2.out' }, contrast: { criticalText: 7 }, redundantEncodings: { status: 'shape-and-label' },
     },
     selectedDirection: { candidateId: 'candidate-a', digest: HEX('candidate'), candidate: {} },
     integrity: { digest: null, upstream: {} },

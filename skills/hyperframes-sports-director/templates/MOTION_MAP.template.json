@@ -6,6 +6,7 @@
   "status": "draft",
   "designRevision": "design-1",
   "assetRevision": "assets-1",
+  "seed": "replace-with-project-seed",
   "owners": [],
   "integrity": { "digest": null, "upstream": {} }
 }

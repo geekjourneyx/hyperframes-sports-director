@@ -10,9 +10,27 @@
     "status": { "enum": ["draft", "available", "frozen", "superseded"] },
     "designRevision": { "type": "string", "pattern": "^design-[a-zA-Z0-9-]+$" },
     "assetRevision": { "type": "string", "pattern": "^assets-[a-zA-Z0-9-]+$" },
-    "owners": { "type": "array", "items": { "type": "object", "required": ["ownerId", "assetId", "primitive", "entryFrames", "holdFrames", "exitFrames", "colorToken"], "additionalProperties": false, "properties": { "ownerId": { "type": "string", "pattern": "^owner-[a-zA-Z0-9-]+$" }, "assetId": { "type": "string", "pattern": "^asset-[a-zA-Z0-9-]+$" }, "primitive": { "type": "string", "minLength": 1 }, "entryFrames": { "type": "integer", "minimum": 0 }, "holdFrames": { "type": "integer", "minimum": 0 }, "exitFrames": { "type": "integer", "minimum": 0 }, "colorToken": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" } } } },
+    "seed": { "type": "string", "minLength": 1 },
+    "designSystemDigest": { "$ref": "#/$defs/digest" },
+    "assetManifestDigest": { "$ref": "#/$defs/digest" },
+    "sceneSchemaDigest": { "$ref": "#/$defs/digest" },
+    "owners": { "type": "array", "items": { "$ref": "#/$defs/owner" } },
     "integrity": { "$ref": "#/$defs/integrity" }
   },
   "additionalProperties": false,
-  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } } }
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "frozen" } } },
+    "then": {
+      "properties": { "seed": true, "designSystemDigest": true, "assetManifestDigest": true, "sceneSchemaDigest": true },
+      "required": ["seed", "designSystemDigest", "assetManifestDigest", "sceneSchemaDigest"]
+    }
+  }],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "interval": { "type": "array", "prefixItems": [{ "type": "number", "minimum": 0 }, { "type": "number", "exclusiveMinimum": 0 }], "minItems": 2, "maxItems": 2 },
+    "timing": { "type": "object", "required": ["entry", "hold", "exit"], "additionalProperties": false, "properties": { "entry": { "$ref": "#/$defs/interval" }, "hold": { "$ref": "#/$defs/interval" }, "exit": { "$ref": "#/$defs/interval" } } },
+    "transition": { "type": "object", "required": ["relationship", "midpointSeconds", "nonEmpty"], "additionalProperties": false, "properties": { "relationship": { "enum": ["spatial-continuation", "motion-match", "shape-mask-carry", "environmental-texture-bridge", "data-to-footage-bridge"] }, "midpointSeconds": { "type": "number", "minimum": 0 }, "nonEmpty": { "const": true }, "designReason": { "type": "string", "minLength": 1 } } },
+    "owner": { "type": "object", "required": ["ownerId", "layerId", "sceneId", "assetId", "primitive", "entryFrames", "holdFrames", "exitFrames", "colorToken", "timing", "proofPasses"], "additionalProperties": false, "properties": { "ownerId": { "type": "string", "pattern": "^owner-[a-zA-Z0-9-]+$" }, "layerId": { "type": "string", "pattern": "^layer-[a-zA-Z0-9-]+$" }, "sceneId": { "type": "string", "pattern": "^scene-[a-zA-Z0-9-]+$" }, "assetId": { "anyOf": [{ "type": "string", "pattern": "^asset-[a-zA-Z0-9-]+$" }, { "type": "null" }] }, "primitive": { "enum": ["gsap", "svg", "css", "lottie", "three", "static"] }, "entryFrames": { "type": "integer", "minimum": 0 }, "holdFrames": { "type": "integer", "minimum": 0 }, "exitFrames": { "type": "integer", "minimum": 0 }, "colorToken": { "type": "string", "pattern": "^color\\.[a-z][A-Za-z0-9]*$" }, "timing": { "$ref": "#/$defs/timing" }, "proofPasses": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^(?:background-only|layer-matte:layer-[a-zA-Z0-9-]+|token-matte:color\\.[a-z][A-Za-z0-9]*)$" } }, "motionDirection": { "type": "string", "minLength": 1 }, "designReason": { "type": "string", "minLength": 1 }, "transition": { "$ref": "#/$defs/transition" } } },
+    "integrity": { "type": "object", "required": ["digest", "upstream"], "additionalProperties": false, "properties": { "digest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "upstream": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" } } } }
+  }
 }
