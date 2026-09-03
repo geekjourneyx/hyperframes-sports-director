@@ -100,10 +100,22 @@ release-grade claims for experimental profiles.
 - [Contributor rules](AGENTS.md)
 - [No-Skill baseline](docs/skill-baseline-report.md)
 - [Skill evaluation](docs/skill-evaluation-report.md)
-- [Design specification](docs/superpowers/specs/2026-08-31-hyperframes-sports-director-v1-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-08-31-hyperframes-sports-director-v1.md)
 
 </details>
+
+## Acknowledgements
+
+Built on ideas from [HyperFrames Motion Director](https://github.com/geekjourneyx/hyperframes-motion-director)
+and [Guizang Sports Skill](https://github.com/op7418/guizang-sports-skill).
+Exact upstream revisions and file-level derivation records are documented in
+[`UPSTREAM.lock.json`](UPSTREAM.lock.json) and [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
+
+## Author
+
+- Website: [jieni.ai](https://jieni.ai)
+- GitHub: [geekjourneyx](https://github.com/geekjourneyx)
+- X: [@seekjourney](https://x.com/seekjourney)
+- WeChat Official Account: 极客杰尼
 
 ## License
 
